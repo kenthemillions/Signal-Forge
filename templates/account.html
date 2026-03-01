@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account - Signal Forge</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        body { background: #0f0f1a; color: #e8e8e8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .account-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; }
+        .plan-badge { font-size: 1.1rem; }
+        .btn-upgrade { background: linear-gradient(135deg, #00d4aa, #00ff88); color: #0f0f1a; font-weight: 600; }
+        a { color: #00d4aa; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-black border-bottom border-secondary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('dashboard') }}"><i class="bi bi-graph-up-arrow text-success"></i> Signal Forge</a>
+            <span class="navbar-text">{{ user.username or user.email }}</span>
+            <a class="btn btn-outline-light btn-sm" href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a class="btn btn-outline-danger btn-sm ms-2" href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </nav>
+    <div class="container py-5">
+        <h1 class="mb-4">Account & Billing</h1>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="account-card p-4 mb-4">
+                    <h5><i class="bi bi-person"></i> Profile</h5>
+                    <p class="mb-0"><strong>Email:</strong> {{ user.email }}</p>
+                    <p class="mb-0"><strong>Username:</strong> {{ user.username or '—' }}</p>
+                    <p class="mb-0"><strong>Member since:</strong> {{ user.created_at.strftime('%B %Y') if user.created_at else '—' }}</p>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="account-card p-4 mb-4">
+                    <h5><i class="bi bi-award"></i> Current Plan</h5>
+                    <p class="mb-2"><span class="badge bg-success plan-badge">{{ plan_name }}</span></p>
+                    <ul class="small text-muted mb-0">
+                        <li>Watchlist: {{ plan_features.get('max_watchlist', 5) }} symbols</li>
+                        <li>Multi-timeframe: {{ 'Yes' if plan_features.get('multi_timeframe') else 'No' }}</li>
+                        <li>Alerts: {{ 'Yes' if plan_features.get('alerts') else 'No' }}</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="account-card p-4">
+            <h5><i class="bi bi-credit-card"></i> Upgrade</h5>
+            <p class="text-muted small">Get more watchlist slots, multi-timeframe analysis, and alerts.</p>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <div class="p-3 border rounded {{ 'border-success' if user.plan == 'pro' else '' }}">
+                        <h6>Pro Coach</h6>
+                        <p class="h4 text-success mb-0">$59<small class="text-muted">/mo</small></p>
+                        <ul class="small mb-2"><li>25 watchlist</li><li>Multi-timeframe</li><li>Journal & alerts</li></ul>
+                        {% if user.plan == 'pro' %}<span class="badge bg-secondary">Current</span>{% elif stripe_price_pro %}<a href="{{ url_for('stripe_checkout', plan='pro') }}" class="btn btn-upgrade btn-sm mt-1">Upgrade</a>{% else %}<span class="small text-muted">Configure Stripe</span>{% endif %}
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="p-3 border rounded {{ 'border-success' if user.plan == 'elite' else '' }}">
+                        <h6>Elite Funded</h6>
+                        <p class="h4 text-success mb-0">$129<small class="text-muted">/mo</small></p>
+                        <ul class="small mb-2"><li>Unlimited watchlist</li><li>All Pro features</li><li>Priority support</li></ul>
+                        {% if user.plan == 'elite' %}<span class="badge bg-secondary">Current</span>{% elif stripe_price_elite %}<a href="{{ url_for('stripe_checkout', plan='elite') }}" class="btn btn-upgrade btn-sm mt-1">Upgrade</a>{% else %}<span class="small text-muted">Configure Stripe</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <p class="text-muted small mt-4"><a href="{{ url_for('terms_page') }}">Terms of Service</a> | <a href="{{ url_for('privacy_page') }}">Privacy Policy</a> | <a href="{{ url_for('disclaimer_page') }}">Disclaimer</a></p>
+    </div>
+</body>
+</html>

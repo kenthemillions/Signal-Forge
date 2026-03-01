@@ -1,0 +1,22 @@
+# Render.com – one-click deploy with database
+# Push to GitHub, then: Render Dashboard → New → Blueprint → connect repo (or New → Web Service and add Postgres manually).
+# Set SESSION_SECRET in the web service Environment tab (required for login to persist).
+
+databases:
+  - name: signalforge-db
+    plan: free
+
+services:
+  - type: web
+    name: signal-forge
+    plan: free
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --worker-class eventlet --workers 1 app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: signalforge-db
+          property: connectionString

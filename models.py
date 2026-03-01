@@ -1,0 +1,377 @@
+"""
+Signal Forge - Database Models
+SQLAlchemy models for users, watchlists, signals, and journal entries
+"""
+
+from datetime import datetime
+from flask_sqlalchemy import SQLAlchemy
+
+db = SQLAlchemy()
+
+
+class User(db.Model):
+    """User account model for SaaS subscription"""
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=True)
+    password_hash = db.Column(db.String(255), nullable=True)
+    plan = db.Column(db.String(50), default='free', nullable=False)
+    role = db.Column(db.String(20), default='user', nullable=False)
+    stripe_customer_id = db.Column(db.String(120), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    watchlist = db.relationship('Watchlist', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+    journal_entries = db.relationship('JournalEntry', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f'<User {self.email}>'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email,
+            'username': self.username,
+            'plan': self.plan,
+            'role': self.role,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+    
+    @property
+    def is_admin(self):
+        return self.role == 'admin'
+    
+    @property
+    def is_beta(self):
+        return self.role == 'beta' or self.plan == 'beta'
+
+
+class Watchlist(db.Model):
+    """User watchlist model"""
+    __tablename__ = 'watchlist'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    symbol = db.Column(db.String(20), nullable=False)
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+    notes = db.Column(db.Text)
+    
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'symbol', name='unique_user_symbol'),
+    )
+    
+    def __repr__(self):
+        return f'<Watchlist {self.symbol}>'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'added_at': self.added_at.isoformat() if self.added_at else None,
+            'notes': self.notes
+        }
+
+
+class JournalEntry(db.Model):
+    """Trading journal entry model"""
+    __tablename__ = 'journal_entries'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    symbol = db.Column(db.String(20), nullable=False)
+    thesis = db.Column(db.Text)
+    direction = db.Column(db.String(10))
+    entry_price = db.Column(db.Float)
+    stop_price = db.Column(db.Float)
+    target_price = db.Column(db.Float)
+    exit_price = db.Column(db.Float)
+    result = db.Column(db.String(20))
+    pnl = db.Column(db.Float)
+    pnl_percent = db.Column(db.Float)
+    notes = db.Column(db.Text)
+    lessons_learned = db.Column(db.Text)
+    entry_time = db.Column(db.DateTime)
+    exit_time = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<JournalEntry {self.symbol} {self.result}>'
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'thesis': self.thesis,
+            'direction': self.direction,
+            'entry_price': self.entry_price,
+            'stop_price': self.stop_price,
+            'target_price': self.target_price,
+            'exit_price': self.exit_price,
+            'result': self.result,
+            'pnl': self.pnl,
+            'pnl_percent': self.pnl_percent,
+            'notes': self.notes,
+            'lessons_learned': self.lessons_learned,
+            'entry_time': self.entry_time.isoformat() if self.entry_time else None,
+            'exit_time': self.exit_time.isoformat() if self.exit_time else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class Ticker(db.Model):
+    """Tracked ticker symbols"""
+    id = db.Column(db.Integer, primary_key=True)
+    symbol = db.Column(db.String(10), unique=True, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class Signal(db.Model):
+    """Trading signals generated by the system"""
+    id = db.Column(db.Integer, primary_key=True)
+    symbol = db.Column(db.String(10), nullable=False, index=True)
+    signal_type = db.Column(db.String(20), nullable=False)
+    strength = db.Column(db.Float, default=0)
+    price = db.Column(db.Float)
+    indicators_summary = db.Column(db.Text)
+    strategy = db.Column(db.String(50))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    outcome = db.Column(db.String(20))
+    outcome_price = db.Column(db.Float)
+    outcome_timestamp = db.Column(db.DateTime)
+    timeframe = db.Column(db.String(10))
+    bias = db.Column(db.String(20))
+    confidence = db.Column(db.Float)
+    main_reason = db.Column(db.Text)
+    reasons = db.Column(db.Text)
+    entry_price = db.Column(db.Float)
+    stop_price = db.Column(db.Float)
+    target_price = db.Column(db.Float)
+    
+    def to_dict(self):
+        import json
+        reasons_list = []
+        if self.reasons:
+            try:
+                reasons_list = json.loads(self.reasons)
+            except:
+                reasons_list = []
+        
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'signal_type': self.signal_type,
+            'strength': self.strength,
+            'price': self.price,
+            'indicators_summary': self.indicators_summary,
+            'strategy': self.strategy,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'outcome': self.outcome,
+            'outcome_price': self.outcome_price,
+            'outcome_timestamp': self.outcome_timestamp.isoformat() if self.outcome_timestamp else None,
+            'timeframe': self.timeframe,
+            'bias': self.bias,
+            'confidence': self.confidence,
+            'main_reason': self.main_reason,
+            'reasons': reasons_list,
+            'entry_price': self.entry_price,
+            'stop_price': self.stop_price,
+            'target_price': self.target_price
+        }
+
+
+class UserSettings(db.Model):
+    """User-configurable settings for indicators and alerts"""
+    id = db.Column(db.Integer, primary_key=True)
+    
+    rsi_period = db.Column(db.Integer, default=14)
+    rsi_oversold = db.Column(db.Float, default=30)
+    rsi_overbought = db.Column(db.Float, default=70)
+    
+    macd_fast = db.Column(db.Integer, default=12)
+    macd_slow = db.Column(db.Integer, default=26)
+    macd_signal = db.Column(db.Integer, default=9)
+    macd_sensitivity = db.Column(db.Float, default=1.0)
+    
+    volume_spike_threshold = db.Column(db.Float, default=2.0)
+    volume_period = db.Column(db.Integer, default=20)
+    
+    bollinger_period = db.Column(db.Integer, default=20)
+    bollinger_std = db.Column(db.Float, default=2.0)
+    
+    sr_lookback = db.Column(db.Integer, default=50)
+    sr_threshold = db.Column(db.Float, default=0.02)
+    
+    audio_enabled = db.Column(db.Boolean, default=True)
+    notification_level = db.Column(db.String(20), default='all')
+    
+    default_risk_percent = db.Column(db.Float, default=2.0)
+    default_account_size = db.Column(db.Float, default=10000)
+    
+    # Late-Day Gatekeeper settings
+    gatekeeper_enabled = db.Column(db.Boolean, default=True)
+    gatekeeper_start_hour = db.Column(db.Integer, default=13)  # 1:25 PM CT = 13:25
+    gatekeeper_start_minute = db.Column(db.Integer, default=25)
+    gatekeeper_end_hour = db.Column(db.Integer, default=14)    # 2:25 PM CT = 14:25
+    gatekeeper_end_minute = db.Column(db.Integer, default=25)
+    gatekeeper_stop_when_green = db.Column(db.Boolean, default=True)
+    
+    # Timezone preference
+    timezone = db.Column(db.String(20), default='CT')  # CT or ET
+    
+    # Daily session tracking
+    daily_profitable_trade = db.Column(db.Boolean, default=False)
+    daily_session_date = db.Column(db.Date)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'rsi_period': self.rsi_period,
+            'rsi_oversold': self.rsi_oversold,
+            'rsi_overbought': self.rsi_overbought,
+            'macd_fast': self.macd_fast,
+            'macd_slow': self.macd_slow,
+            'macd_signal': self.macd_signal,
+            'macd_sensitivity': self.macd_sensitivity,
+            'volume_spike_threshold': self.volume_spike_threshold,
+            'volume_period': self.volume_period,
+            'bollinger_period': self.bollinger_period,
+            'bollinger_std': self.bollinger_std,
+            'sr_lookback': self.sr_lookback,
+            'sr_threshold': self.sr_threshold,
+            'audio_enabled': self.audio_enabled,
+            'notification_level': self.notification_level,
+            'default_risk_percent': self.default_risk_percent,
+            'default_account_size': self.default_account_size,
+            'gatekeeper_enabled': self.gatekeeper_enabled,
+            'gatekeeper_start_hour': self.gatekeeper_start_hour,
+            'gatekeeper_start_minute': self.gatekeeper_start_minute,
+            'gatekeeper_end_hour': self.gatekeeper_end_hour,
+            'gatekeeper_end_minute': self.gatekeeper_end_minute,
+            'gatekeeper_stop_when_green': self.gatekeeper_stop_when_green,
+            'timezone': self.timezone,
+            'daily_profitable_trade': self.daily_profitable_trade
+        }
+
+
+class SignalPerformance(db.Model):
+    """Daily performance tracking for signals"""
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False)
+    total_signals = db.Column(db.Integer, default=0)
+    winning_signals = db.Column(db.Integer, default=0)
+    losing_signals = db.Column(db.Integer, default=0)
+    accuracy = db.Column(db.Float, default=0)
+    avg_gain = db.Column(db.Float, default=0)
+    avg_loss = db.Column(db.Float, default=0)
+    strategy = db.Column(db.String(50))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'date': self.date.isoformat() if self.date else None,
+            'total_signals': self.total_signals,
+            'winning_signals': self.winning_signals,
+            'losing_signals': self.losing_signals,
+            'accuracy': self.accuracy,
+            'avg_gain': self.avg_gain,
+            'avg_loss': self.avg_loss,
+            'strategy': self.strategy
+        }
+
+
+class PaperTrade(db.Model):
+    """Paper trading positions"""
+    id = db.Column(db.Integer, primary_key=True)
+    symbol = db.Column(db.String(10), nullable=False)
+    side = db.Column(db.String(10), nullable=False)
+    quantity = db.Column(db.Integer, default=0)
+    entry_price = db.Column(db.Float, nullable=False)
+    exit_price = db.Column(db.Float)
+    entry_time = db.Column(db.DateTime, default=datetime.utcnow)
+    exit_time = db.Column(db.DateTime)
+    status = db.Column(db.String(20), default='OPEN')
+    pnl = db.Column(db.Float, default=0)
+    signal_type = db.Column(db.String(20))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'side': self.side,
+            'quantity': self.quantity,
+            'entry_price': self.entry_price,
+            'exit_price': self.exit_price,
+            'entry_time': self.entry_time.isoformat() if self.entry_time else None,
+            'exit_time': self.exit_time.isoformat() if self.exit_time else None,
+            'status': self.status,
+            'pnl': self.pnl,
+            'signal_type': self.signal_type
+        }
+
+
+class PaperAccount(db.Model):
+    """Paper trading account"""
+    id = db.Column(db.Integer, primary_key=True)
+    balance = db.Column(db.Float, default=10000)
+    starting_balance = db.Column(db.Float, default=10000)
+    total_trades = db.Column(db.Integer, default=0)
+    winning_trades = db.Column(db.Integer, default=0)
+    losing_trades = db.Column(db.Integer, default=0)
+    total_pnl = db.Column(db.Float, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        win_rate = (self.winning_trades / self.total_trades * 100) if self.total_trades > 0 else 0
+        return {
+            'id': self.id,
+            'balance': self.balance,
+            'starting_balance': self.starting_balance,
+            'total_trades': self.total_trades,
+            'winning_trades': self.winning_trades,
+            'losing_trades': self.losing_trades,
+            'total_pnl': self.total_pnl,
+            'win_rate': round(win_rate, 1),
+            'return_pct': round((self.balance - self.starting_balance) / self.starting_balance * 100, 2)
+        }
+
+
+class BetaFeedback(db.Model):
+    """Beta user feedback and feature suggestions"""
+    id = db.Column(db.Integer, primary_key=True)
+    category = db.Column(db.String(50), nullable=False)
+    suggestion = db.Column(db.Text, nullable=False)
+    email = db.Column(db.String(120))
+    rating = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default='NEW')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'category': self.category,
+            'suggestion': self.suggestion,
+            'email': self.email,
+            'rating': self.rating,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'status': self.status
+        }
+
+
+def init_db(app):
+    """Initialize database with app context"""
+    db.init_app(app)
+    with app.app_context():
+        db.create_all()
