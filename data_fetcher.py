@@ -37,7 +37,7 @@ class MarketDataFetcher:
         if et:
             now = datetime.now(et)
         else:
-            # Fallback: UTC-5 approximation
+            # Fallback: UTC-5 approximation for Eastern
             now = datetime.utcnow() - timedelta(hours=5)
         
         hour = now.hour

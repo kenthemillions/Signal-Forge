@@ -1,5 +1,19 @@
 # Signal Forge - Options Trading Signals Application
 
+## Synopsis — What Signal Forge Does
+
+**Signal Forge** is a live options-trading coach web app that keeps you connected to the market and gives you clear, actionable signals. It is built to:
+
+- **Deliver real-time data** — Live prices and signal updates over WebSockets so the dashboard stays current without manual refresh.
+- **Accept and track tickers** — Add symbols in the ticker box (single or multiple, e.g. `AAPL` or `AAPL, MSFT, NVDA`); the app stores them and includes them in scans and price updates.
+- **Generate trading signals** — Combines indicators (RSI, MACD, VWAP, EMAs, Bollinger, volume), market regime, supply/demand zones, and entry confirmation to output BUY/SELL/PREPARE/WAIT with confidence and plain-English reasoning.
+- **Support multiple modes** — Basic (traffic-light signals + chart), Institutional (zones, options flow, multi-timeframe), and Seasonality (time-of-day edge).
+- **Help you practice** — Paper trading, journal, and Smart Coach (rule-based + optional AI) so you can refine strategy without real money.
+
+Deploy by pushing this repo to GitHub and connecting it to Render (see `render.yaml` and **How to Run** below).
+
+---
+
 ## Overview
 A production-ready Python Flask web application providing real-time options trading signals. Signal Forge is a "market condition + location + confirmation" coach that provides actionable trading signals with confidence scoring based on confluence of indicators, market regime detection, supply/demand zones, and entry confirmations.
 

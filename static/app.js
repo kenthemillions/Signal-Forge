@@ -3681,28 +3681,62 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const input = document.getElementById('new-ticker');
         if (!input) return;
         
-        const symbol = input.value.toUpperCase().trim();
-        if (!symbol) return;
+        const raw = input.value.trim();
+        if (!raw) return;
+        
+        const submitBtn = document.getElementById('add-ticker-submit');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Adding...';
+        }
         
         try {
-            await fetch('/api/tickers', {
+            const res = await fetch('/api/tickers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol })
+                body: JSON.stringify({ symbol: raw })
             });
+            const data = await res.json().catch(() => ({}));
+            
+            if (!res.ok) {
+                const msg = data.error || 'Failed to add ticker';
+                this.showTickerToast(msg, 'danger');
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Add'; }
+                return;
+            }
             
             input.value = '';
             
-            this.scannerTickerSelection[symbol] = true;
+            const added = data.added || (data.symbol ? [data] : []);
+            const errors = data.errors || [];
+            added.forEach(t => { this.scannerTickerSelection[t.symbol] = true; });
             this.saveScannerSelection();
             
             await this.loadTickers();
+            
+            if (added.length) this.showTickerToast(`Added: ${added.map(t => t.symbol).join(', ')}`, 'success');
+            if (errors.length) this.showTickerToast(errors.slice(0, 3).join('; '), 'warning');
             
             const modal = bootstrap.Modal.getInstance(document.getElementById('addTickerModal'));
             if (modal) modal.hide();
         } catch (error) {
             console.error('Error adding ticker:', error);
+            this.showTickerToast('Network error. Check connection and try again.', 'danger');
+        } finally {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Add'; }
         }
+    }
+    
+    showTickerToast(message, type) {
+        const id = 'ticker-toast-' + Date.now();
+        const el = document.createElement('div');
+        el.id = id;
+        el.className = `alert alert-${type} position-fixed top-0 start-50 translate-middle-x mt-3 shadow`;
+        el.style.zIndex = '9999';
+        el.setAttribute('role', 'alert');
+        el.textContent = message;
+        document.body.appendChild(el);
+        setTimeout(() => { const e = document.getElementById(id); if (e) e.remove(); }, 5000);
     }
     
     confirmRemoveTicker() {

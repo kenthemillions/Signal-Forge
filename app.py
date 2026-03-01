@@ -92,7 +92,7 @@ with app.app_context():
         db.session.commit()
 
 def background_price_updater():
-    """Background task to push real-time price updates every 15 seconds"""
+    """Background task to push real-time price updates to connected clients."""
     while True:
         try:
             with app.app_context():
@@ -100,8 +100,8 @@ def background_price_updater():
                 for ticker in tickers:
                     try:
                         data_fetcher.clear_cache(ticker.symbol)
-                        data = data_fetcher.get_market_data(ticker.symbol, period='1d', interval='5m')
-                        if data and 'current_price' in data:
+                        data = data_fetcher.get_stock_data(ticker.symbol, period='1d', interval='5m')
+                        if data and 'error' not in data and 'current_price' in data:
                             socketio.emit('price_update', {
                                 'symbol': ticker.symbol,
                                 'price': data.get('current_price', 0),
@@ -110,11 +110,11 @@ def background_price_updater():
                                 'timestamp': datetime.now().isoformat()
                             })
                     except Exception as e:
-                        pass
+                        logger.debug('Price update failed for %s: %s', ticker.symbol, e)
                     eventlet.sleep(1)
         except Exception as e:
-            pass
-        eventlet.sleep(10)
+            logger.debug('Background price updater: %s', e)
+        eventlet.sleep(15)
 
 @app.route('/health')
 def health_check():
@@ -489,21 +489,34 @@ def get_tickers():
 
 @app.route('/api/tickers', methods=['POST'])
 def add_ticker():
-    data = request.get_json()
-    symbol = data.get('symbol', '').upper().strip()
-    if not symbol:
-        return jsonify({'error': 'Symbol required'}), 400
-    
-    existing = Ticker.query.filter_by(symbol=symbol).first()
-    if existing:
-        existing.is_active = True
-        db.session.commit()
-        return jsonify(existing.to_dict())
-    
-    ticker = Ticker(symbol=symbol, is_active=True)
-    db.session.add(ticker)
-    db.session.commit()
-    return jsonify(ticker.to_dict())
+    data = request.get_json() or {}
+    raw = (data.get('symbol') or data.get('ticker') or '').strip().upper()
+    if not raw:
+        return jsonify({'error': 'Symbol required', 'success': False}), 400
+    # Accept comma- or space-separated tickers (e.g. "AAPL, MSFT, NVDA")
+    symbols = [s.strip() for s in raw.replace(',', ' ').split() if s.strip() and len(s.strip()) <= 12]
+    if not symbols:
+        return jsonify({'error': 'Enter at least one symbol (e.g. AAPL or AAPL, MSFT)', 'success': False}), 400
+    symbols = symbols[:20]  # cap at 20 per request
+    added = []
+    errors = []
+    for symbol in symbols:
+        try:
+            existing = Ticker.query.filter_by(symbol=symbol).first()
+            if existing:
+                existing.is_active = True
+                db.session.commit()
+                added.append(existing.to_dict())
+            else:
+                ticker = Ticker(symbol=symbol, is_active=True)
+                db.session.add(ticker)
+                db.session.commit()
+                added.append(ticker.to_dict())
+        except Exception as e:
+            errors.append(f'{symbol}: {str(e)[:80]}')
+    if not added and errors:
+        return jsonify({'error': '; '.join(errors[:3]), 'success': False}), 400
+    return jsonify({'added': added, 'errors': errors, 'success': True})
 
 @app.route('/api/tickers/<symbol>', methods=['DELETE'])
 def remove_ticker(symbol):
