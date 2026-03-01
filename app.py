@@ -10,10 +10,7 @@ from datetime import datetime
 import json
 
 from models import db, Signal, UserSettings, SignalPerformance, Ticker, PaperTrade, PaperAccount, BetaFeedback, User, Watchlist, JournalEntry
-from auth import (
-    get_current_user, login_required, admin_required,
-    hash_password, verify_password, get_plan_max_watchlist
-)
+from auth import (get_current_user, login_required, admin_requiredhash_password, verify_password, get_plan_max_watchlist)
 from config import Config
 from indicators import IndicatorEngine
 import yfinance as yf

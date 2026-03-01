@@ -1,8 +1,3 @@
-"""
-Signal Forge - Configuration Module
-Environment variable handling and application settings
-"""
-
 import os
 import logging
 from typing import Optional
