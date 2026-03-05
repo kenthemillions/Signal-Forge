@@ -2561,11 +2561,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const badge = document.getElementById('market-status');
         const textEl = document.getElementById('session-text');
         const premarketTrend = document.getElementById('premarket-trend');
+        const currentPriceEl = document.getElementById('current-price');
+        const lastUpdatedEl = document.getElementById('last-updated');
         if (badge && (badge.textContent === 'Loading...' || badge.textContent === 'Refreshing...')) {
             badge.textContent = '—';
             badge.className = 'badge bg-secondary';
         }
-        if (textEl && textEl.textContent === 'Loading market status...') {
+        if (textEl && (textEl.textContent === 'Loading market status...' || textEl.textContent === 'Connecting…')) {
             textEl.textContent = 'Data loaded. Click Refresh for live status.';
             const iconEl = document.getElementById('session-icon');
             if (iconEl) iconEl.textContent = '📡';
@@ -2573,6 +2575,12 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         if (premarketTrend && premarketTrend.textContent.trim() === 'Loading...') {
             premarketTrend.textContent = '—';
             premarketTrend.className = 'h5 text-muted';
+        }
+        if (currentPriceEl && (currentPriceEl.textContent === '$--' || currentPriceEl.textContent.includes('--'))) {
+            currentPriceEl.innerHTML = '<span class="text-muted">Click Refresh for live price</span>';
+        }
+        if (lastUpdatedEl && lastUpdatedEl.textContent === 'Updated: --') {
+            lastUpdatedEl.textContent = 'Updated: —';
         }
     }
     
@@ -2889,13 +2897,19 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
     
     async loadTradeRecommendation() {
+        const currentPriceEl = document.getElementById('current-price');
+        const priceChangeEl = document.getElementById('price-change');
+        const lastUpdatedEl = document.getElementById('last-updated');
         try {
             const cacheBuster = Date.now();
             const response = await fetch(`/api/trade-recommendation/${this.currentTicker}?interval=${this.currentInterval}&_t=${cacheBuster}`);
             const data = await response.json();
             
-            if (data.error) {
-                console.error('Trade recommendation error:', data.error);
+            if (data.error || !data.current_price) {
+                console.warn('Trade recommendation:', data.error || 'No price data');
+                if (currentPriceEl) currentPriceEl.innerHTML = '<span class="text-muted">Refresh for live price</span>';
+                if (priceChangeEl) priceChangeEl.textContent = '—';
+                if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
                 return;
             }
             
@@ -3822,7 +3836,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             
             await this.loadTickers();
             
-            if (added.length) this.showTickerToast(`Added: ${added.map(t => t.symbol).join(', ')}`, 'success');
+            if (added.length) {
+                this.showTickerToast(`Added: ${added.map(t => t.symbol).join(', ')}. Loading data…`, 'success');
+                const firstSymbol = added[0].symbol || added[0];
+                this.currentTicker = firstSymbol;
+                const select = document.getElementById('ticker-select');
+                if (select) select.value = firstSymbol;
+                await this.refreshData();
+            }
             if (errors.length) this.showTickerToast(errors.slice(0, 3).join('; '), 'warning');
             
             const modal = bootstrap.Modal.getInstance(document.getElementById('addTickerModal'));
