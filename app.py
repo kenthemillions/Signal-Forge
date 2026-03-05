@@ -2,6 +2,7 @@ import eventlet
 eventlet.monkey_patch()
 
 import os
+import time
 import logging
 
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session
@@ -129,7 +130,8 @@ def landing():
 @app.route('/app')
 @login_required
 def dashboard():
-    return render_template('dashboard.html', current_user=get_current_user())
+    static_version = os.environ.get('RENDER_GIT_COMMIT', str(int(time.time())))
+    return render_template('dashboard.html', current_user=get_current_user(), static_version=static_version)
 
 @app.route('/login', methods=['GET'])
 def login_page():

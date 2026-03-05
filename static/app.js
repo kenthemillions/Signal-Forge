@@ -252,6 +252,28 @@ class TradingSignalsApp {
         
         this.initFeedbackForm();
         this.loadPremarketAnalysis();
+        this.startLoadingTimeout();
+    }
+    
+    startLoadingTimeout() {
+        setTimeout(() => {
+            const badge = document.getElementById('market-status');
+            const textEl = document.getElementById('session-text');
+            const premarketTrend = document.getElementById('premarket-trend');
+            if (badge && badge.textContent === 'Loading...') {
+                badge.textContent = '—';
+                badge.className = 'badge bg-secondary';
+            }
+            if (textEl && textEl.textContent === 'Loading market status...') {
+                textEl.textContent = 'Server may be waking up. Click Refresh in a moment.';
+                const iconEl = document.getElementById('session-icon');
+                if (iconEl) iconEl.textContent = '📡';
+            }
+            if (premarketTrend && premarketTrend.textContent.trim() === 'Loading...') {
+                premarketTrend.textContent = 'Refresh for data';
+                premarketTrend.className = 'h5 text-muted';
+            }
+        }, 22000);
     }
     
     async loadPremarketAnalysis() {
@@ -2525,6 +2547,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             
         } catch (error) {
             console.error('Refresh error:', error);
+            this.updateSessionBanner(null);
+            const badge = document.getElementById('market-status');
+            if (badge) { badge.textContent = '—'; badge.className = 'badge bg-secondary'; }
         } finally {
             if (refreshBtn) {
                 refreshBtn.disabled = false;
