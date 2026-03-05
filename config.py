@@ -13,7 +13,7 @@ class Config:
     DATABASE_URL = os.environ.get('DATABASE_URL')
     SQLITE_PATH = os.environ.get('SQLITE_PATH', 'trading_signals.db')
     
-    # Production (e.g. Render): set DATABASE_URL for persistent DB. Else SQLite (data lost on redeploy).
+    
     if DATABASE_URL:
         SQLALCHEMY_DATABASE_URI = ('postgresql://' + DATABASE_URL[11:]) if DATABASE_URL.startswith('postgres://') else DATABASE_URL
     else:

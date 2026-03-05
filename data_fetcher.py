@@ -14,12 +14,15 @@ class MarketDataFetcher:
     def __init__(self):
         self._cache = {}
         self._cache_expiry = {}
-        self.cache_duration_regular = 3  # 3s cache during regular hours
-        self.cache_duration_extended = 1  # 1s cache during extended hours (fastest possible)
+        self.cache_duration_regular = 3  
+        self.cache_duration_extended = 1  
         self._options_cache = {}
         self._options_cache_expiry = {}
-        self.options_cache_duration = 30  # Reduced from 60s for fresher options data
-        self._pc_ratio_history = {}  # Track P/C ratio changes
+        self.options_cache_duration = 30  
+        self._pc_ratio_history = {}  
+        self._info_cache = {}
+        self._info_cache_expiry = {}
+        self.info_cache_duration = 300 
     
     def _get_cache_duration(self) -> int:
         """Return appropriate cache duration based on market session"""
@@ -31,19 +34,19 @@ class MarketDataFetcher:
                 from pytz import timezone
                 et = timezone('US/Eastern')
             except ImportError:
-                # Fallback: estimate ET as UTC-5
+                
                 et = None
         
         if et:
             now = datetime.now(et)
         else:
-            # Fallback: UTC-5 approximation for Eastern
+            
             now = datetime.utcnow() - timedelta(hours=5)
         
         hour = now.hour
         minute = now.minute
         
-        # Regular hours: 9:30 AM - 4:00 PM ET
+        
         is_regular = (hour == 9 and minute >= 30) or (10 <= hour < 16)
         
         return self.cache_duration_regular if is_regular else self.cache_duration_extended
@@ -71,42 +74,38 @@ class MarketDataFetcher:
             df = ticker.history(period=period, interval=interval, prepost=True)
             
             if df.empty:
-                return {'error': f'No data available for {symbol}'}
+                df = ticker.history(period=period, interval=interval, prepost=False)
+                if df.empty:
+                    return {'error': f'No data available for {symbol}'}
             
-            info = {}
-            try:
-                info = ticker.info
-            except:
-                pass
-            
-            previous_close = info.get('previousClose') or info.get('regularMarketPreviousClose') or df['Open'].iloc[0]
-            
-            premarket_price = info.get('preMarketPrice')
-            postmarket_price = info.get('postMarketPrice')
+            info = self._get_info(ticker, symbol)
             
             intraday_last = float(df['Close'].iloc[-1]) if len(df) > 0 else 0
-            api_price = info.get('regularMarketPrice') or info.get('currentPrice') or 0
-            regular_price = intraday_last if intraday_last > 0 else api_price
             
+            previous_close = info.get('previousClose') or info.get('regularMarketPreviousClose')
+            if not previous_close and len(df) > 0:
+                previous_close = float(df['Open'].iloc[0])
+            
+            current_price = intraday_last
             session = 'regular'
-            regular_close = regular_price
-            bid_price = info.get('bid', 0)
-            ask_price = info.get('ask', 0)
+            
+            premarket_price = info.get('preMarketPrice', 0)
+            postmarket_price = info.get('postMarketPrice', 0)
             
             if premarket_price and premarket_price > 0:
-                current_price = max(premarket_price, ask_price) if ask_price > 0 else premarket_price
-                change = current_price - previous_close
-                change_percent = (change / previous_close) * 100 if previous_close else 0
+                if len(df) < 5: current_price = premarket_price
                 session = 'premarket'
             elif postmarket_price and postmarket_price > 0:
-                current_price = max(postmarket_price, ask_price) if ask_price > 0 else postmarket_price
-                change = current_price - previous_close
-                change_percent = (change / previous_close) * 100 if previous_close else 0
+                if len(df) < 5: current_price = postmarket_price
                 session = 'afterhours'
-            else:
-                current_price = regular_price
-                change = current_price - previous_close
-                change_percent = (change / previous_close) * 100 if previous_close != 0 else 0
+            
+            if current_price == 0:
+                current_price = info.get('currentPrice') or info.get('regularMarketPrice') or 0
+            
+            regular_close = current_price
+            
+            change = current_price - previous_close if previous_close else 0
+            change_percent = (change / previous_close) * 100 if previous_close else 0
             
             change = round(float(change), 2)
             change_percent = round(float(change_percent), 2)
@@ -148,16 +147,39 @@ class MarketDataFetcher:
         for symbol in symbols:
             results[symbol] = self.get_stock_data(symbol, period, interval)
         return results
+
+    def _get_info(self, ticker: yf.Ticker, symbol: str) -> Dict:
+        """Helper to get ticker info with long-duration caching"""
+        now = datetime.now()
+        if symbol in self._info_cache:
+            if now < self._info_cache_expiry.get(symbol, datetime.min):
+                return self._info_cache[symbol]
+
+        try:
+            info = ticker.info
+            if info:
+                self._info_cache[symbol] = info
+                self._info_cache_expiry[symbol] = now + timedelta(seconds=self.info_cache_duration)
+                return info
+        except Exception:
+            pass
+        return self._info_cache.get(symbol, {})
     
     def get_quote(self, symbol: str) -> Dict:
         """Get current quote for a symbol"""
         try:
             ticker = yf.Ticker(symbol)
-            info = ticker.info
+            info = self._get_info(ticker, symbol)
+            
+            price = info.get('currentPrice', info.get('regularMarketPrice', 0))
+            if price == 0:
+                df = ticker.history(period='1d')
+                if not df.empty:
+                    price = float(df['Close'].iloc[-1])
             
             return {
                 'symbol': symbol,
-                'price': info.get('currentPrice', info.get('regularMarketPrice', 0)),
+                'price': price,
                 'change': info.get('regularMarketChange', 0),
                 'change_percent': info.get('regularMarketChangePercent', 0),
                 'volume': info.get('regularMarketVolume', 0),
@@ -176,9 +198,9 @@ class MarketDataFetcher:
     def search_symbols(self, query: str) -> List[Dict]:
         """Search for ticker symbols"""
         try:
-            # yfinance doesn't have a direct search, so we'll validate the symbol
+            
             ticker = yf.Ticker(query.upper())
-            info = ticker.info
+            info = self._get_info(ticker, query.upper())
             
             if info.get('symbol'):
                 return [{
@@ -195,12 +217,16 @@ class MarketDataFetcher:
         if symbol:
             keys_to_remove = [k for k in self._cache.keys() if k.startswith(symbol)]
             for key in keys_to_remove:
-                del self._cache[key]
-                if key in self._cache_expiry:
-                    del self._cache_expiry[key]
+                if key in self._cache: del self._cache[key]
+                if key in self._cache_expiry: del self._cache_expiry[key]
+            
+            if symbol in self._info_cache: del self._info_cache[symbol]
+            if symbol in self._info_cache_expiry: del self._info_cache_expiry[symbol]
         else:
             self._cache.clear()
             self._cache_expiry.clear()
+            self._info_cache.clear()
+            self._info_cache_expiry.clear()
     
     def get_multi_timeframe_data(self, symbol: str) -> Dict:
         """
@@ -213,7 +239,7 @@ class MarketDataFetcher:
             '5m': {'period': '5d', 'interval': '5m'},
             '15m': {'period': '5d', 'interval': '15m'},
             '1h': {'period': '1mo', 'interval': '1h'},
-            '4h': {'period': '3mo', 'interval': '1h'}  # Aggregate to 4h
+            '4h': {'period': '3mo', 'interval': '1h'} 
         }
         
         result = {'symbol': symbol, 'timeframes': {}}

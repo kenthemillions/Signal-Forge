@@ -350,13 +350,13 @@ class IndicatorEngine:
         if len(closes) < slow + signal_period:
             return 0.0, 0.0, 0.0
         
-        # Calculate EMAs
+        
         ema_fast = self._ema(closes, fast)
         ema_slow = self._ema(closes, slow)
         
         macd_line = ema_fast - ema_slow
         
-        # Signal line (EMA of MACD)
+        
         if len(closes) >= slow + signal_period:
             macd_values = []
             for i in range(slow, len(closes)):
@@ -425,7 +425,7 @@ class IndicatorEngine:
         recent_highs = highs[-lookback:]
         recent_lows = lows[-lookback:]
         
-        # Find significant levels using pivots
+        
         resistance = np.percentile(recent_highs, 90)
         support = np.percentile(recent_lows, 10)
         

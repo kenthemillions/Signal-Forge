@@ -220,18 +220,18 @@ class UserSettings(db.Model):
     default_risk_percent = db.Column(db.Float, default=2.0)
     default_account_size = db.Column(db.Float, default=10000)
     
-    # Late-Day Gatekeeper settings
+    
     gatekeeper_enabled = db.Column(db.Boolean, default=True)
-    gatekeeper_start_hour = db.Column(db.Integer, default=13)  # 1:25 PM CT = 13:25
+    gatekeeper_start_hour = db.Column(db.Integer, default=13)  
     gatekeeper_start_minute = db.Column(db.Integer, default=25)
-    gatekeeper_end_hour = db.Column(db.Integer, default=14)    # 2:25 PM CT = 14:25
+    gatekeeper_end_hour = db.Column(db.Integer, default=14)    
     gatekeeper_end_minute = db.Column(db.Integer, default=25)
     gatekeeper_stop_when_green = db.Column(db.Boolean, default=True)
     
-    # Timezone preference
-    timezone = db.Column(db.String(20), default='CT')  # CT or ET
     
-    # Daily session tracking
+    timezone = db.Column(db.String(20), default='CT')  
+    
+    
     daily_profitable_trade = db.Column(db.Boolean, default=False)
     daily_session_date = db.Column(db.Date)
     

@@ -11,14 +11,14 @@ class TradingSignalsApp {
         this.currentInterval = '5m';
         this.currentPeriod = '1d';
         this.chartType = 'line';
-        
+
         this.TIMEFRAME_CONFIG = {
-            '1m':  { barThickness: 4,  timeUnit: 'minute', stepSize: 5,  maxPoints: 120, period: '1d' },
-            '2m':  { barThickness: 5,  timeUnit: 'minute', stepSize: 10, maxPoints: 100, period: '1d' },
-            '5m':  { barThickness: 6,  timeUnit: 'minute', stepSize: 15, maxPoints: 80,  period: '1d' },
-            '15m': { barThickness: 8,  timeUnit: 'minute', stepSize: 30, maxPoints: 60,  period: '5d' },
-            '1h':  { barThickness: 12, timeUnit: 'hour',   stepSize: 1,  maxPoints: 50,  period: '1mo' },
-            '4h':  { barThickness: 16, timeUnit: 'hour',   stepSize: 4,  maxPoints: 40,  period: '3mo' }
+            '1m': { barThickness: 4, timeUnit: 'minute', stepSize: 5, maxPoints: 120, period: '1d' },
+            '2m': { barThickness: 5, timeUnit: 'minute', stepSize: 10, maxPoints: 100, period: '1d' },
+            '5m': { barThickness: 6, timeUnit: 'minute', stepSize: 15, maxPoints: 80, period: '1d' },
+            '15m': { barThickness: 8, timeUnit: 'minute', stepSize: 30, maxPoints: 60, period: '5d' },
+            '1h': { barThickness: 12, timeUnit: 'hour', stepSize: 1, maxPoints: 50, period: '1mo' },
+            '4h': { barThickness: 16, timeUnit: 'hour', stepSize: 4, maxPoints: 40, period: '3mo' }
         };
         this.lastSignal = null;
         this.indicatorToggles = {
@@ -38,10 +38,10 @@ class TradingSignalsApp {
         this.lastLotteryAlert = null;
         this.lastReversalKey = null;
         this.signalHistory = this.loadSignalHistory();
-        
+
         this.init();
     }
-    
+
     loadSignalHistory() {
         try {
             const stored = localStorage.getItem('signalHistory');
@@ -50,16 +50,16 @@ class TradingSignalsApp {
             return [];
         }
     }
-    
+
     saveSignalHistory() {
         try {
             if (this.signalHistory.length > 500) {
                 this.signalHistory = this.signalHistory.slice(-500);
             }
             localStorage.setItem('signalHistory', JSON.stringify(this.signalHistory));
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     logSignal(ticker, signal, price, strength, reasons) {
         this.signalHistory.push({
             ticker,
@@ -73,7 +73,7 @@ class TradingSignalsApp {
         });
         this.saveSignalHistory();
     }
-    
+
     loadPerformanceData() {
         try {
             const stored = localStorage.getItem('signalPerformance');
@@ -82,24 +82,24 @@ class TradingSignalsApp {
             return { signals: [], wins: 0, losses: 0, totalGain: 0, totalLoss: 0 };
         }
     }
-    
+
     savePerformanceData() {
         try {
             localStorage.setItem('signalPerformance', JSON.stringify(this.performanceData));
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     trackSignalPerformance(data) {
         if (!data.current_price) return;
-        
+
         const signals = this.performanceData.signals || [];
-        
+
         if (data.main_signal && data.main_signal !== 'WAIT') {
-            const hasRecent = signals.some(s => 
-                s.ticker === this.currentTicker && 
+            const hasRecent = signals.some(s =>
+                s.ticker === this.currentTicker &&
                 Date.now() - s.timestamp < 300000
             );
-            
+
             if (!hasRecent) {
                 signals.push({
                     ticker: this.currentTicker,
@@ -113,14 +113,14 @@ class TradingSignalsApp {
                 this.performanceData.totalSignals = (this.performanceData.totalSignals || 0) + 1;
             }
         }
-        
+
         signals.forEach(sig => {
             if (sig.resolved) return;
             if (sig.ticker !== this.currentTicker) return;
-            
+
             const priceChange = ((data.current_price - sig.entry) / sig.entry) * 100;
             const timeElapsed = Date.now() - sig.timestamp;
-            
+
             if (sig.direction === 'BUY') {
                 if (priceChange >= 1) {
                     sig.resolved = true;
@@ -151,16 +151,16 @@ class TradingSignalsApp {
                 }
             }
         });
-        
+
         if (signals.length > 200) {
             signals.splice(0, signals.length - 200);
         }
-        
+
         this.performanceData.signals = signals;
         this.savePerformanceData();
         this.updatePerformanceDisplay();
     }
-    
+
     updatePerformanceDisplay() {
         const totalSignals = this.performanceData.totalSignals || 0;
         const resolved = this.performanceData.wins + this.performanceData.losses;
@@ -169,14 +169,14 @@ class TradingSignalsApp {
         const winRate = hasEnoughData ? ((this.performanceData.wins / resolved) * 100).toFixed(0) : '--';
         const avgWin = this.performanceData.wins > 0 ? (this.performanceData.totalGain / this.performanceData.wins).toFixed(1) : '0';
         const avgLoss = this.performanceData.losses > 0 ? (this.performanceData.totalLoss / this.performanceData.losses).toFixed(1) : '0';
-        
+
         const totalSignalsEl = document.getElementById('total-signals');
         const winRateEl = document.getElementById('win-rate');
         const winRateBadgeEl = document.getElementById('win-rate-badge');
         const avgWinEl = document.getElementById('avg-win');
         const avgLossEl = document.getElementById('avg-loss');
         const bestTfEl = document.getElementById('best-timeframe');
-        
+
         if (totalSignalsEl) totalSignalsEl.textContent = totalSignals;
         if (winRateEl) winRateEl.textContent = hasEnoughData ? winRate + '%' : '--';
         if (winRateBadgeEl) {
@@ -191,12 +191,12 @@ class TradingSignalsApp {
         }
         if (avgWinEl) avgWinEl.textContent = '+' + avgWin + '%';
         if (avgLossEl) avgLossEl.textContent = '-' + avgLoss + '%';
-        
+
         const tfStats = {};
         (this.performanceData.signals || []).filter(s => s.resolved && s.outcome === 'win').forEach(s => {
             tfStats[s.timeframe] = (tfStats[s.timeframe] || 0) + 1;
         });
-        
+
         let bestTf = '5m';
         let bestCount = 0;
         Object.entries(tfStats).forEach(([tf, count]) => {
@@ -205,10 +205,10 @@ class TradingSignalsApp {
                 bestCount = count;
             }
         });
-        
+
         if (bestTfEl) bestTfEl.textContent = hasEnoughData ? `${bestTf} - ${winRate}% win rate` : `${bestTf} - collecting data`;
     }
-    
+
     async init() {
         this.initAudioContext();
         this.initSocket();
@@ -224,15 +224,15 @@ class TradingSignalsApp {
         this.playStartupSound();
         this.initFeedbackForm();
         this.debugMode = false;
-        
+
         const sessionText = document.getElementById('session-text');
         if (sessionText) sessionText.textContent = 'Loading…';
-        
+
         await this.loadTickers();
-        
+
         this.loadSettings();
         this.loadSignals();
-        
+
         const enableAlertsBtn = document.getElementById('enable-alerts-btn');
         if (enableAlertsBtn) enableAlertsBtn.addEventListener('click', () => this.enableTradingAlerts());
         const debugToggle = document.getElementById('debug-toggle');
@@ -244,13 +244,13 @@ class TradingSignalsApp {
         });
         const lastHourRefresh = document.getElementById('last-hour-refresh');
         if (lastHourRefresh) lastHourRefresh.addEventListener('click', () => this.loadLastHourScan());
-        
+
         setTimeout(() => this.clearLoadingState(), 3000);
         this.startLoadingTimeout();
-        
+
         await this.refreshData();
     }
-    
+
     startLoadingTimeout() {
         setTimeout(() => {
             const badge = document.getElementById('market-status');
@@ -271,34 +271,34 @@ class TradingSignalsApp {
             }
         }, 8000);
     }
-    
+
     async loadPremarketAnalysis() {
         try {
             const response = await fetch(`/api/premarket-analysis/${this.currentTicker}?_t=${Date.now()}`);
             const data = await response.json();
-            
+
             const directionEl = document.getElementById('premarket-direction');
             const trendEl = document.getElementById('premarket-trend');
             const priceEl = document.getElementById('premarket-price');
             const changeEl = document.getElementById('premarket-change');
             const outlookEl = document.getElementById('premarket-outlook');
-            
+
             if (data.trend && directionEl) {
                 const arrow = data.direction === 'UP' ? '↑' : data.direction === 'DOWN' ? '↓' : '→';
                 directionEl.textContent = arrow;
                 directionEl.style.color = data.color;
-                
+
                 trendEl.textContent = data.trend;
                 trendEl.style.color = data.color;
-                
+
                 priceEl.textContent = `$${data.current_price}`;
-                
+
                 const sign = data.change >= 0 ? '+' : '';
                 changeEl.textContent = `${sign}${data.change} (${sign}${data.change_percent}%)`;
                 changeEl.className = `fw-bold ${data.change >= 0 ? 'text-success' : 'text-danger'}`;
-                
+
                 outlookEl.textContent = data.outlook;
-                
+
                 const badge = document.getElementById('market-status');
                 if (badge && data.session === 'PREMARKET') {
                     badge.textContent = 'PRE MARKET';
@@ -309,13 +309,13 @@ class TradingSignalsApp {
             console.log('Premarket analysis not available');
         }
     }
-    
+
     initFeedbackForm() {
         const submitBtn = document.getElementById('submit-feedback-btn');
         const ratingBtns = document.querySelectorAll('.rating-btn');
-        
+
         let selectedRating = 0;
-        
+
         ratingBtns.forEach(btn => {
             btn.addEventListener('click', () => {
                 selectedRating = parseInt(btn.dataset.rating);
@@ -331,21 +331,21 @@ class TradingSignalsApp {
                 });
             });
         });
-        
+
         if (submitBtn) {
             submitBtn.addEventListener('click', async () => {
                 const category = document.getElementById('feedback-category').value;
                 const suggestion = document.getElementById('feedback-suggestion').value;
                 const email = document.getElementById('feedback-email').value;
-                
+
                 if (!suggestion.trim()) {
                     this.showNotification('Please enter your suggestion', 'warning');
                     return;
                 }
-                
+
                 submitBtn.disabled = true;
                 submitBtn.innerHTML = '<i class="bi bi-hourglass"></i> Sending...';
-                
+
                 try {
                     const response = await fetch('/api/beta-feedback', {
                         method: 'POST',
@@ -357,9 +357,9 @@ class TradingSignalsApp {
                             rating: selectedRating
                         })
                     });
-                    
+
                     const data = await response.json();
-                    
+
                     if (data.success) {
                         this.showNotification('Thank you for your feedback! We truly appreciate beta testers like you.', 'success');
                         document.getElementById('feedback-suggestion').value = '';
@@ -376,13 +376,13 @@ class TradingSignalsApp {
                 } catch (error) {
                     this.showNotification('Error submitting feedback. Please try again.', 'danger');
                 }
-                
+
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="bi bi-send"></i> Submit Feedback';
             });
         }
     }
-    
+
     playStartupSound() {
         setTimeout(() => {
             if (this.audioContext) {
@@ -391,21 +391,21 @@ class TradingSignalsApp {
                     const gain = this.audioContext.createGain();
                     osc.connect(gain);
                     gain.connect(this.audioContext.destination);
-                    
+
                     osc.type = 'sine';
                     const now = this.audioContext.currentTime;
-                    
+
                     osc.frequency.setValueAtTime(523.25, now);
                     osc.frequency.setValueAtTime(659.25, now + 0.1);
                     osc.frequency.setValueAtTime(783.99, now + 0.2);
                     osc.frequency.setValueAtTime(1046.50, now + 0.3);
-                    
+
                     gain.gain.setValueAtTime(0.3, now);
                     gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-                    
+
                     osc.start(now);
                     osc.stop(now + 0.5);
-                    
+
                     console.log('🎵 Trading Signals Active!');
                 } catch (e) {
                     console.log('Startup sound requires user interaction first');
@@ -413,7 +413,7 @@ class TradingSignalsApp {
             }
         }, 500);
     }
-    
+
     initAudioContext() {
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -425,11 +425,11 @@ class TradingSignalsApp {
             console.log('Audio context not available');
         }
     }
-    
+
     enableTradingAlerts() {
         this.alertsEnabled = true;
-        if (this.bellSound) this.bellSound.play().then(() => this.bellSound.pause()).catch(() => {});
-        if (this.alertSound) this.alertSound.play().then(() => this.alertSound.pause()).catch(() => {});
+        if (this.bellSound) this.bellSound.play().then(() => this.bellSound.pause()).catch(() => { });
+        if (this.alertSound) this.alertSound.play().then(() => this.alertSound.pause()).catch(() => { });
         const btn = document.getElementById('enable-alerts-btn');
         if (btn) {
             btn.innerHTML = '<i class="bi bi-bell-fill"></i> Alerts Enabled';
@@ -438,7 +438,7 @@ class TradingSignalsApp {
         this.showNotification('Trading alerts enabled! You\'ll hear bells at 3:50 PM and 3:54 PM ET.');
         this.requestPushNotificationPermission();
     }
-    
+
     requestPushNotificationPermission() {
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission().then(permission => {
@@ -448,7 +448,7 @@ class TradingSignalsApp {
             });
         }
     }
-    
+
     sendPushNotification(title, body, tag = 'trading-signal') {
         if (!this.alertsEnabled) return;
         if ('Notification' in window && Notification.permission === 'granted') {
@@ -460,17 +460,17 @@ class TradingSignalsApp {
                     requireInteraction: true,
                     silent: false
                 });
-                
+
                 notification.onclick = () => {
                     window.focus();
                     notification.close();
                 };
-                
+
                 setTimeout(() => notification.close(), 10000);
-            } catch (e) {}
+            } catch (e) { }
         }
     }
-    
+
     showNotification(message, type = 'info') {
         const container = document.getElementById('notification-container') || document.body;
         const toast = document.createElement('div');
@@ -480,7 +480,7 @@ class TradingSignalsApp {
         container.appendChild(toast);
         setTimeout(() => toast.remove(), 5000);
     }
-    
+
     speak(text) {
         if (!this.alertsEnabled) return;
         if ('speechSynthesis' in window) {
@@ -495,7 +495,7 @@ class TradingSignalsApp {
             window.speechSynthesis.speak(utterance);
         }
     }
-    
+
     getMotivationalQuote() {
         const quotes = [
             "Focus. Discipline. Execute.",
@@ -516,7 +516,7 @@ class TradingSignalsApp {
         ];
         return quotes[Math.floor(Math.random() * quotes.length)];
     }
-    
+
     playMarketOpenMelody() {
         if (!this.audioContext || !this.alertsEnabled) return;
         try {
@@ -534,9 +534,9 @@ class TradingSignalsApp {
                 osc.start(now + i * 0.15);
                 osc.stop(now + i * 0.15 + 0.5);
             });
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     playLotteryHourMelody() {
         if (!this.audioContext || !this.alertsEnabled) return;
         try {
@@ -554,9 +554,9 @@ class TradingSignalsApp {
                 osc.start(now + i * 0.1);
                 osc.stop(now + i * 0.1 + 0.3);
             });
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     playMarketCloseMelody() {
         if (!this.audioContext || !this.alertsEnabled) return;
         try {
@@ -574,9 +574,9 @@ class TradingSignalsApp {
                 osc.start(now + i * 0.2);
                 osc.stop(now + i * 0.2 + 0.6);
             });
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     showEndOfDayCheckIn() {
         const modal = document.createElement('div');
         modal.className = 'modal fade show';
@@ -609,13 +609,13 @@ class TradingSignalsApp {
             </div>
         `;
         document.body.appendChild(modal);
-        
+
         const responses = {
             great: ["Amazing work! Keep that momentum going!", "You're on fire! Consistency is key.", "Excellent! Remember what worked today."],
             okay: ["Every day is a lesson. Tomorrow is a new opportunity.", "Steady progress beats big swings. You're doing fine.", "Review your trades. Small adjustments lead to big results."],
             tough: ["Tough days build tough traders. You've got this.", "Protect your capital. Live to trade another day.", "Step back, breathe. The market will be there tomorrow."]
         };
-        
+
         modal.querySelectorAll('.checkin-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const mood = e.currentTarget.dataset.mood;
@@ -627,25 +627,25 @@ class TradingSignalsApp {
                 e.currentTarget.classList.add('active');
             });
         });
-        
+
         document.getElementById('close-checkin').addEventListener('click', () => {
             modal.remove();
             this.speak("See you tomorrow. Rest well and come back ready!");
         });
     }
-    
+
     getEasternTime() {
         const now = new Date();
         const etString = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
         return new Date(etString);
     }
-    
+
     checkLotteryHourAlerts() {
         const et = this.getEasternTime();
         const hours = et.getHours();
         const minutes = et.getMinutes();
         const today = et.toDateString();
-        
+
         if (hours === 15 && minutes >= 55) {
             if (!this.lotteryHourActive) {
                 this.lotteryHourActive = true;
@@ -657,21 +657,21 @@ class TradingSignalsApp {
                 this.deactivateLotteryHourMode();
             }
         }
-        
+
         if (hours < 15 || hours >= 16) {
             this.lastLotteryAlert = null;
             this.lastLotteryAlertDate = null;
         }
-        
+
         if (!this.alertsEnabled) return;
-        
+
         const alertKey = `${today}-15:50`;
         if (hours === 15 && minutes === 50 && this.lastLotteryAlert !== alertKey) {
             this.lastLotteryAlert = alertKey;
             this.playLotteryBell();
             this.showNotification('🔔 LOTTERY HOUR in 5 minutes! High momentum trades only.', 'warning');
         }
-        
+
         const alertKey53 = `${today}-15:53`;
         if (hours === 15 && minutes === 53 && this.lastLotteryAlert !== alertKey53) {
             this.lastLotteryAlert = alertKey53;
@@ -679,21 +679,21 @@ class TradingSignalsApp {
             this.showNotification('⚠️ 2 MINUTES to Lottery Hour! Auto-scanning now...', 'danger');
             this.runLotteryHourScan();
         }
-        
+
         const alertKey54 = `${today}-15:54`;
         if (hours === 15 && minutes === 54 && this.lastLotteryAlert !== alertKey54) {
             this.lastLotteryAlert = alertKey54;
             this.runLotteryScan();
             this.speak('Lottery play scan complete! Check your top 3 picks now.');
         }
-        
+
         const alertKey55 = `${today}-15:55`;
         if (hours === 15 && minutes === 55 && this.lastLotteryAlert !== alertKey55) {
             this.lastLotteryAlert = alertKey55;
             this.showNotification('🎰 LOTTERY HOUR IS NOW! Extreme momentum plays only!', 'danger');
             this.speak('Lottery hour is now active. Only high momentum trades.');
         }
-        
+
         const alertKey925 = `${today}-09:25`;
         if (hours === 9 && minutes === 25 && this.lastLotteryAlert !== alertKey925) {
             this.lastLotteryAlert = alertKey925;
@@ -702,7 +702,7 @@ class TradingSignalsApp {
             this.showNotification(`🌅 Market opens in 5 minutes! ${quote}`, 'info');
             this.speak(`Good morning trader! The market opens in 5 minutes. Remember: ${quote}. Let's have a great trading day!`);
         }
-        
+
         const alertKey930 = `${today}-09:30`;
         if (hours === 9 && minutes === 30 && this.lastLotteryAlert !== alertKey930) {
             this.lastLotteryAlert = alertKey930;
@@ -710,7 +710,7 @@ class TradingSignalsApp {
             this.showNotification('🔔 MARKET IS NOW OPEN! Time to execute!', 'success');
             this.speak("The bell has rung! Market is open. Stay focused, stay disciplined, and trade your plan!");
         }
-        
+
         const alertKey355 = `${today}-15:55`;
         if (hours === 15 && minutes === 55 && this.lastLotteryAlert !== alertKey355) {
             this.lastLotteryAlert = alertKey355;
@@ -718,7 +718,7 @@ class TradingSignalsApp {
             this.showNotification('🎰 LOTTERY HOUR! High momentum plays only!', 'danger');
             this.speak("Lottery hour is now active! Only high conviction trades. Protect your gains!");
         }
-        
+
         const alertKey400 = `${today}-16:00`;
         if (hours === 16 && minutes === 0 && this.lastLotteryAlert !== alertKey400) {
             this.lastLotteryAlert = alertKey400;
@@ -728,15 +728,15 @@ class TradingSignalsApp {
             setTimeout(() => this.showEndOfDayCheckIn(), 3000);
         }
     }
-    
+
     playLotteryBell() {
         if (this.bellSound && this.alertsEnabled) {
             this.bellSound.currentTime = 0;
             this.bellSound.volume = this.audioVolume;
-            this.bellSound.play().catch(() => {});
+            this.bellSound.play().catch(() => { });
         }
     }
-    
+
     playLotteryAlert() {
         if (this.audioContext && this.alertsEnabled) {
             try {
@@ -744,38 +744,38 @@ class TradingSignalsApp {
                 const gain = this.audioContext.createGain();
                 osc.connect(gain);
                 gain.connect(this.audioContext.destination);
-                
+
                 osc.type = 'sawtooth';
                 const now = this.audioContext.currentTime;
-                
+
                 osc.frequency.setValueAtTime(150, now);
                 osc.frequency.setValueAtTime(120, now + 0.1);
                 osc.frequency.setValueAtTime(150, now + 0.2);
                 osc.frequency.setValueAtTime(120, now + 0.3);
                 osc.frequency.setValueAtTime(150, now + 0.4);
-                
+
                 gain.gain.setValueAtTime(this.audioVolume * 0.4, now);
                 gain.gain.setValueAtTime(this.audioVolume * 0.2, now + 0.1);
                 gain.gain.setValueAtTime(this.audioVolume * 0.4, now + 0.2);
                 gain.gain.setValueAtTime(this.audioVolume * 0.2, now + 0.3);
                 gain.gain.setValueAtTime(this.audioVolume * 0.4, now + 0.4);
                 gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-                
+
                 osc.start(now);
                 osc.stop(now + 0.5);
-            } catch (e) {}
+            } catch (e) { }
         }
     }
-    
+
     playStrongBuyAlert() {
         if (this.alertsEnabled && this.alertSound) {
             this.alertSound.currentTime = 0;
             this.alertSound.volume = this.audioVolume;
-            this.alertSound.play().catch(() => {});
+            this.alertSound.play().catch(() => { });
         }
         this.playBuyAlert();
     }
-    
+
     /** Dramatic alarm for TRUE trend reversal — impossible to miss */
     playReversalAlert() {
         if (!this.audioContext || !this.audioEnabled) return;
@@ -800,9 +800,9 @@ class TradingSignalsApp {
             playBeep(now + 0.84, 280, 0.25);
             gainNode.gain.setValueAtTime(this.audioVolume * 0.6, now);
             gainNode.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     async loadLastHourScan() {
         const panel = document.getElementById('last-hour-panel');
         const playsEl = document.getElementById('last-hour-plays');
@@ -828,24 +828,23 @@ class TradingSignalsApp {
             if (data.in_last_hour_window) panel.classList.remove('d-none');
             if (timeEl) timeEl.textContent = data.scan_time || '';
             playsEl.innerHTML = data.strongest_plays.map(p => {
-                    const isCall = p.play === 'CALL';
-                    const btnClass = isCall ? 'btn-success' : 'btn-danger';
-                    const safeReason = (p.reason || '').replace(/"/g, '&quot;');
-return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data-symbol="${p.symbol}" data-play="${p.play}" title="${safeReason}">${p.symbol} strong ${p.play} <span class="badge bg-dark">${p.strength_score}</span></button>`;
-                }).join('');
-                playsEl.querySelectorAll('.last-hour-play').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        const sym = btn.getAttribute('data-symbol');
-                        if (!sym) return;
-                        const tickerSelect = document.getElementById('ticker-select');
-                        if (tickerSelect) tickerSelect.value = sym;
-                        this.currentTicker = sym;
-                        this.lastReversalKey = null;
-                        if (this.socket) this.socket.emit('subscribe', { symbol: sym });
-                        this.refreshData();
-                    });
+                const isCall = p.play === 'CALL';
+                const btnClass = isCall ? 'btn-success' : 'btn-danger';
+                const safeReason = (p.reason || '').replace(/"/g, '&quot;');
+                return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data-symbol="${p.symbol}" data-play="${p.play}" title="${safeReason}">${p.symbol} strong ${p.play} <span class="badge bg-dark">${p.strength_score}</span></button>`;
+            }).join('');
+            playsEl.querySelectorAll('.last-hour-play').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const sym = btn.getAttribute('data-symbol');
+                    if (!sym) return;
+                    const tickerSelect = document.getElementById('ticker-select');
+                    if (tickerSelect) tickerSelect.value = sym;
+                    this.currentTicker = sym;
+                    this.lastReversalKey = null;
+                    if (this.socket) this.socket.emit('subscribe', { symbol: sym });
+                    this.refreshData();
                 });
-            }
+            });
         } catch (e) {
             if (panel) panel.classList.add('d-none');
         }
@@ -882,35 +881,35 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     activateLotteryHourMode() {
         const panel = document.getElementById('main-signal-panel');
         if (panel) panel.classList.add('lottery-hour-mode');
-        
+
         const banner = document.getElementById('lottery-hour-banner');
         if (banner) banner.style.display = 'block';
-        
+
         const lotteryPanel = document.getElementById('lottery-picks-panel');
         if (lotteryPanel) lotteryPanel.style.display = 'block';
-        
+
         this.showNotification('🎰 LOTTERY HOUR ACTIVE - Extreme moves possible!', 'warning');
     }
-    
+
     deactivateLotteryHourMode() {
         const panel = document.getElementById('main-signal-panel');
         if (panel) panel.classList.remove('lottery-hour-mode');
-        
+
         const banner = document.getElementById('lottery-hour-banner');
         if (banner) banner.style.display = 'none';
     }
-    
+
     async runLotteryHourScan() {
         const extendedHoursTickers = ['SPY', 'QQQ', 'GLD', 'SLV', 'IWM', 'DIA', 'XLF', 'XLE', 'TLT'];
         const allTickers = this.getSelectedScannerTickers();
-        
+
         if (allTickers.length === 0) {
             this.showNotification('No tickers selected for lottery scan!', 'warning');
             return;
         }
-        
+
         this.showNotification(`🎰 LOTTERY SCAN: Analyzing ${allTickers.length} tickers...`, 'warning');
-        
+
         const results = [];
         for (const ticker of allTickers) {
             try {
@@ -919,7 +918,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                     const data = await response.json();
                     const isExtended = extendedHoursTickers.includes(ticker.toUpperCase());
                     const closeTime = isExtended ? '4:15 PM' : '4:00 PM';
-                    
+
                     results.push({
                         ticker,
                         signal: data.main_signal,
@@ -931,18 +930,18 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                         reasons: data.reasons || []
                     });
                 }
-            } catch (e) {}
+            } catch (e) { }
         }
-        
+
         results.sort((a, b) => {
             const aScore = this.getLotteryScore(a);
             const bScore = this.getLotteryScore(b);
             return bScore - aScore;
         });
-        
+
         this.displayLotteryResults(results);
     }
-    
+
     getLotteryScore(result) {
         let score = result.strength;
         if (result.signal === 'STRONG BUY' || result.signal === 'STRONG SELL') score += 30;
@@ -950,11 +949,11 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         if (result.isExtended) score += 10;
         return score;
     }
-    
+
     async runLotteryScan() {
         const panel = document.getElementById('lottery-picks-panel');
         const content = document.getElementById('lottery-picks-content');
-        
+
         if (panel) panel.style.display = 'block';
         if (content) {
             content.innerHTML = `
@@ -963,11 +962,11 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 </div>
             `;
         }
-        
+
         try {
             const response = await fetch('/api/lottery-scan');
             const data = await response.json();
-            
+
             if (data.success && data.lottery_picks.length > 0) {
                 const picksHtml = data.lottery_picks.map((pick, i) => {
                     const isCall = pick.option_type === 'CALL';
@@ -980,7 +979,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                     <div class="lottery-pick-card ${glowClass} ${hotClass} ${i === 0 ? 'lottery-top-pick' : ''} mb-2">
                         <div class="lottery-pick-header">
                             <div class="d-flex align-items-center gap-2">
-                                <span class="lottery-rank ${i === 0 ? 'top' : ''}">#${i+1}</span>
+                                <span class="lottery-rank ${i === 0 ? 'top' : ''}">#${i + 1}</span>
                                 <span class="lottery-symbol">${pick.symbol}</span>
                                 <span class="lottery-direction ${isCall ? 'call' : 'put'}">
                                     <i class="bi bi-arrow-${isCall ? 'up' : 'down'}-circle-fill"></i> ${pick.option_type}
@@ -1004,14 +1003,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                         </div>
                     </div>
                 `}).join('');
-                
+
                 content.innerHTML = `
                     <div class="mb-2 text-center">
                         <small class="text-muted">Scanned at ${data.scan_time} | ${data.total_scanned} tickers checked</small>
                     </div>
                     ${picksHtml}
                 `;
-                
+
                 this.showNotification(`🎰 Found ${data.lottery_picks.length} lottery plays!`, 'warning');
             } else {
                 content.innerHTML = `
@@ -1029,22 +1028,22 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             `;
         }
     }
-    
+
     async runMarketOpenScan(phase = '5min') {
         const content = document.getElementById('market-open-content');
         const phaseLabel = document.getElementById('market-open-phase');
-        
+
         const phaseLabels = {
             'premarket': 'Pre-Market Analysis',
             '5min': 'First 5 Minutes',
             '15min': 'First 15 Minutes',
             '30min': 'First 30 Minutes'
         };
-        
+
         if (phaseLabel) {
             phaseLabel.innerHTML = `<span class="badge bg-info"><i class="bi bi-arrow-clockwise spin"></i> Scanning ${phaseLabels[phase]}...</span>`;
         }
-        
+
         if (content) {
             content.innerHTML = `
                 <div class="text-center text-info py-3">
@@ -1052,15 +1051,15 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 </div>
             `;
         }
-        
+
         try {
             const response = await fetch(`/api/market-open-scan?phase=${phase}`);
             const data = await response.json();
-            
+
             if (phaseLabel) {
                 phaseLabel.innerHTML = `<span class="badge bg-success">${data.phase_label || phaseLabels[phase]}</span>`;
             }
-            
+
             if (data.success && data.trending_picks.length > 0) {
                 const picksHtml = data.trending_picks.map((pick, i) => {
                     const isCall = pick.option_type === 'CALL';
@@ -1068,12 +1067,12 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                     const glowClass = isCall ? 'lottery-glow-green' : 'lottery-glow-red';
                     const hotClass = isHot ? 'lottery-hot' : '';
                     const fakeoutClass = pick.is_fakeout ? 'fakeout-warning' : '';
-                    
+
                     return `
                     <div class="lottery-pick-card ${glowClass} ${hotClass} ${fakeoutClass} ${i === 0 ? 'lottery-top-pick' : ''} mb-2">
                         <div class="lottery-pick-header">
                             <div class="d-flex align-items-center gap-2">
-                                <span class="lottery-rank ${i === 0 ? 'top' : ''}">#${i+1}</span>
+                                <span class="lottery-rank ${i === 0 ? 'top' : ''}">#${i + 1}</span>
                                 <span class="lottery-symbol">${pick.symbol}</span>
                                 <span class="lottery-direction ${isCall ? 'call' : 'put'}">
                                     <i class="bi bi-arrow-${isCall ? 'up' : 'down'}-circle-fill"></i> ${pick.option_type}
@@ -1098,14 +1097,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                         </div>
                     </div>
                 `}).join('');
-                
+
                 content.innerHTML = `
                     <div class="mb-2 text-center">
                         <small class="text-muted">Scanned at ${data.scan_time} | ${data.total_scanned} tickers</small>
                     </div>
                     ${picksHtml}
                 `;
-                
+
                 this.showNotification(`📈 Found ${data.trending_picks.length} trending stocks!`, 'info');
             } else {
                 content.innerHTML = `
@@ -1123,22 +1122,22 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             `;
         }
     }
-    
+
     checkMarketOpenAlerts() {
         const et = this.getEasternTime();
         const hours = et.getHours();
         const minutes = et.getMinutes();
         const today = et.toDateString();
-        
+
         if (!this.alertsEnabled) return;
-        
+
         const alertKey925 = `open-${today}-09:25`;
         if (hours === 9 && minutes === 25 && this.lastMarketOpenAlert !== alertKey925) {
             this.lastMarketOpenAlert = alertKey925;
             this.runMarketOpenScan('premarket');
             this.showNotification('🌅 Pre-market scan complete! Top movers identified.', 'info');
         }
-        
+
         const alertKey935 = `open-${today}-09:35`;
         if (hours === 9 && minutes === 35 && this.lastMarketOpenAlert !== alertKey935) {
             this.lastMarketOpenAlert = alertKey935;
@@ -1146,7 +1145,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.speak('First 5 minute scan complete. Checking for true trends.');
             this.showNotification('⏱️ 5-Minute scan! Initial trends forming...', 'info');
         }
-        
+
         const alertKey945 = `open-${today}-09:45`;
         if (hours === 9 && minutes === 45 && this.lastMarketOpenAlert !== alertKey945) {
             this.lastMarketOpenAlert = alertKey945;
@@ -1154,7 +1153,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.speak('15 minute scan complete. Trend confirmation improving.');
             this.showNotification('📊 15-Minute scan! Trends solidifying...', 'info');
         }
-        
+
         const alertKey1000 = `open-${today}-10:00`;
         if (hours === 10 && minutes === 0 && this.lastMarketOpenAlert !== alertKey1000) {
             this.lastMarketOpenAlert = alertKey1000;
@@ -1163,7 +1162,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.showNotification('✅ 30-Minute scan! True trends identified!', 'success');
         }
     }
-    
+
     initMarketOpenScanner() {
         document.querySelectorAll('.open-scan-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -1173,20 +1172,20 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 this.runMarketOpenScan(phase);
             });
         });
-        
+
         setInterval(() => this.checkMarketOpenAlerts(), 30000);
         this.lastMarketOpenAlert = null;
     }
-    
+
     displayLotteryResults(results) {
         const modal = document.createElement('div');
         modal.className = 'modal fade show';
         modal.id = 'lotteryResultsModal';
         modal.style.cssText = 'display: block; background: rgba(0,0,0,0.8);';
-        
+
         const topPicks = results.slice(0, 5);
         const extendedPicks = results.filter(r => r.isExtended).slice(0, 3);
-        
+
         modal.innerHTML = `
             <div class="modal-dialog modal-lg">
                 <div class="modal-content bg-dark text-light">
@@ -1205,7 +1204,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                                         <div class="card-body py-2">
                                             <div class="d-flex justify-content-between align-items-center">
                                                 <div>
-                                                    <span class="badge ${i === 0 ? 'bg-warning text-dark' : 'bg-secondary'} me-2">#${i+1}</span>
+                                                    <span class="badge ${i === 0 ? 'bg-warning text-dark' : 'bg-secondary'} me-2">#${i + 1}</span>
                                                     <strong class="fs-5">${r.ticker}</strong>
                                                     ${r.isExtended ? '<span class="badge bg-info ms-2">Until 4:15</span>' : '<span class="badge bg-secondary ms-2">Closes 4:00</span>'}
                                                 </div>
@@ -1235,24 +1234,24 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(modal);
         this.playLotteryBell();
     }
-    
+
     startLotteryHourTimer() {
         setInterval(() => this.checkLotteryHourAlerts(), 30000);
         this.checkLotteryHourAlerts();
     }
-    
+
     initSocket() {
         this.socket = io();
-        
+
         this.socket.on('connect', () => {
             console.log('Connected to server');
             this.socket.emit('subscribe', { symbol: this.currentTicker });
         });
-        
+
         this.socket.on('price_update', (data) => {
             if (data.symbol === this.currentTicker) {
                 const priceEl = document.getElementById('current-price');
@@ -1266,7 +1265,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 this.lastPrice = data.price;
             }
         });
-        
+
         this.socket.on('new_signal', (signal) => {
             this.addSignalToFeed(signal);
             if (this.audioEnabled && signal.entry_alert) {
@@ -1278,20 +1277,20 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
         });
     }
-    
+
     initChart() {
         const ctx = document.getElementById('price-chart');
         if (!ctx) return;
-        
+
         this.chartCanvas = ctx;
         this.createLineChart();
         this.initVolumeChart();
     }
-    
+
     initVolumeChart() {
         const volumeCtx = document.getElementById('volume-chart');
         if (!volumeCtx) return;
-        
+
         this.volumeCanvas = volumeCtx;
         this.volumeChart = new Chart(volumeCtx.getContext('2d'), {
             type: 'bar',
@@ -1315,8 +1314,8 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                         callbacks: {
                             label: (ctx) => {
                                 const vol = ctx.raw;
-                                if (vol >= 1000000) return `Vol: ${(vol/1000000).toFixed(1)}M`;
-                                if (vol >= 1000) return `Vol: ${(vol/1000).toFixed(0)}K`;
+                                if (vol >= 1000000) return `Vol: ${(vol / 1000000).toFixed(1)}M`;
+                                if (vol >= 1000) return `Vol: ${(vol / 1000).toFixed(0)}K`;
                                 return `Vol: ${vol}`;
                             }
                         }
@@ -1329,23 +1328,23 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
         });
     }
-    
+
     updateVolumeChart(volumes, closes, opens) {
         if (!this.volumeChart || !volumes || volumes.length === 0) return;
-        
+
         const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
         const maxVolume = Math.max(...volumes);
-        
+
         const bgColors = [];
         const borderColors = [];
         let hasSpike = false;
         let spikeCount = 0;
-        
+
         for (let i = 0; i < volumes.length; i++) {
             const vol = volumes[i];
             const ratio = vol / avgVolume;
             const isBullish = closes[i] >= opens[i];
-            
+
             if (ratio >= 2.5) {
                 hasSpike = true;
                 spikeCount++;
@@ -1382,13 +1381,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 }
             }
         }
-        
+
         this.volumeChart.data.datasets[0].data = volumes;
         this.volumeChart.data.datasets[0].backgroundColor = bgColors;
         this.volumeChart.data.datasets[0].borderColor = borderColors;
         this.volumeChart.data.labels = new Array(volumes.length).fill('');
         this.volumeChart.update('none');
-        
+
         const spikeAlert = document.getElementById('volume-spike-alert');
         if (spikeAlert) {
             if (spikeCount >= 3 || (hasSpike && volumes[volumes.length - 1] / avgVolume >= 2)) {
@@ -1400,7 +1399,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
         }
     }
-    
+
     addVolumeGlow() {
         const container = document.querySelector('.volume-chart-container');
         if (container) {
@@ -1408,17 +1407,17 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             container.style.transition = 'box-shadow 0.3s ease';
         }
     }
-    
+
     removeVolumeGlow() {
         const container = document.querySelector('.volume-chart-container');
         if (container) {
             container.style.boxShadow = 'none';
         }
     }
-    
+
     createLineChart() {
         if (this.chart) this.chart.destroy();
-        
+
         this.chart = new Chart(this.chartCanvas.getContext('2d'), {
             type: 'line',
             data: {
@@ -1439,7 +1438,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 responsive: true,
                 maintainAspectRatio: false,
                 interaction: { intersect: false, mode: 'index' },
-                plugins: { 
+                plugins: {
                     legend: { display: false },
                     tooltip: { enabled: window.innerWidth > 768 }
                 },
@@ -1451,19 +1450,19 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
         });
     }
-    
+
     createCandlestickChart() {
         if (this.chart) this.chart.destroy();
-        
+
         const config = this.TIMEFRAME_CONFIG[this.currentInterval] || this.TIMEFRAME_CONFIG['5m'];
-        
+
         this.chart = new Chart(this.chartCanvas.getContext('2d'), {
             type: 'candlestick',
             data: {
                 datasets: [
-                    { 
-                        label: 'Price', 
-                        data: [], 
+                    {
+                        label: 'Price',
+                        data: [],
                         color: { up: '#00e676', down: '#ff5252', unchanged: '#888888' },
                         barThickness: config.barThickness,
                         maxBarThickness: config.barThickness + 4
@@ -1476,23 +1475,23 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { 
+                plugins: {
                     legend: { display: false },
                     tooltip: { enabled: window.innerWidth > 768 }
                 },
                 scales: {
-                    x: { 
-                        type: 'timeseries', 
-                        time: { unit: config.timeUnit, stepSize: config.stepSize }, 
-                        grid: { color: 'rgba(255, 255, 255, 0.1)' }, 
-                        ticks: { color: '#888', maxTicksLimit: 8 } 
+                    x: {
+                        type: 'timeseries',
+                        time: { unit: config.timeUnit, stepSize: config.stepSize },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#888', maxTicksLimit: 8 }
                     },
                     y: { display: true, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888' } }
                 }
             }
         });
     }
-    
+
     async loadTickers() {
         const select = document.getElementById('ticker-select');
         if (!select) return;
@@ -1536,13 +1535,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         this.updateNavBadge();
         this.updateAllScanCounts();
     }
-    
+
     renderBodyScannerGrid(tickers) {
         const container = document.getElementById('body-ticker-grid');
         if (!container) return;
-        
+
         container.innerHTML = '';
-        
+
         tickers.forEach(ticker => {
             const isSelected = this.scannerTickerSelection[ticker.symbol] !== false;
             const item = document.createElement('div');
@@ -1556,107 +1555,107 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             item.addEventListener('click', () => this.toggleBodyTicker(ticker.symbol));
             container.appendChild(item);
         });
-        
+
         this.updateAllScanCounts();
     }
-    
+
     toggleBodyTicker(symbol) {
         this.scannerTickerSelection[symbol] = !this.scannerTickerSelection[symbol];
         const isSelected = this.scannerTickerSelection[symbol];
-        
+
         const bodyItem = document.querySelector(`#body-ticker-grid .scanner-body-item[data-symbol="${symbol}"]`);
         if (bodyItem) {
             bodyItem.classList.toggle('selected', isSelected);
             bodyItem.classList.toggle('dimmed', !isSelected);
             bodyItem.querySelector('.scan-status').textContent = isSelected ? 'Scanning' : 'Skip';
         }
-        
+
         const scannerItem = document.querySelector(`.scanner-ticker-item[data-symbol="${symbol}"]`);
         if (scannerItem) {
             scannerItem.classList.toggle('selected', isSelected);
             scannerItem.classList.toggle('dimmed', !isSelected);
         }
-        
+
         const modalItem = document.querySelector(`#modal-ticker-list .scanner-modal-item[data-symbol="${symbol}"]`);
         if (modalItem) {
             modalItem.classList.toggle('selected', isSelected);
             modalItem.classList.toggle('dimmed', !isSelected);
         }
-        
+
         this.saveScannerSelection();
         this.updateAllScanCounts();
     }
-    
+
     bodySelectAll() {
         Object.keys(this.scannerTickerSelection).forEach(symbol => {
             this.scannerTickerSelection[symbol] = true;
         });
-        
+
         document.querySelectorAll('#body-ticker-grid .scanner-body-item').forEach(item => {
             item.classList.add('selected');
             item.classList.remove('dimmed');
             item.querySelector('.scan-status').textContent = 'Scanning';
         });
-        
+
         document.querySelectorAll('.scanner-ticker-item').forEach(item => {
             item.classList.add('selected');
             item.classList.remove('dimmed');
         });
-        
+
         this.saveScannerSelection();
         this.updateAllScanCounts();
     }
-    
+
     bodyDeselectAll() {
         Object.keys(this.scannerTickerSelection).forEach(symbol => {
             this.scannerTickerSelection[symbol] = false;
         });
-        
+
         document.querySelectorAll('#body-ticker-grid .scanner-body-item').forEach(item => {
             item.classList.remove('selected');
             item.classList.add('dimmed');
             item.querySelector('.scan-status').textContent = 'Skip';
         });
-        
+
         document.querySelectorAll('.scanner-ticker-item').forEach(item => {
             item.classList.remove('selected');
             item.classList.add('dimmed');
         });
-        
+
         this.saveScannerSelection();
         this.updateAllScanCounts();
     }
-    
+
     async runBodyScan() {
         const selected = Object.entries(this.scannerTickerSelection)
             .filter(([_, v]) => v)
             .map(([symbol]) => symbol);
-        
+
         if (selected.length === 0) {
             alert('Please select at least 1 ticker to scan');
             return;
         }
-        
+
         const scanBtn = document.getElementById('body-scan-btn');
         const scanBtnText = document.getElementById('body-scan-btn-text');
         const scanStatus = document.getElementById('body-scan-status');
-        
+
         if (scanBtn) scanBtn.disabled = true;
         if (scanBtnText) scanBtnText.textContent = `Scanning ${selected.length}...`;
         if (scanStatus) {
             scanStatus.style.display = 'block';
             scanStatus.innerHTML = `<i class="bi bi-hourglass-split"></i> Scanning ${selected.join(', ')}...`;
         }
-        
+
         const bullishOnly = document.getElementById('body-filter-bullish')?.checked || false;
         const bearishOnly = document.getElementById('body-filter-bearish')?.checked || false;
         const highConfidence = document.getElementById('body-filter-high')?.checked || false;
-        
+
         try {
             const response = await fetch('/api/scan-top-10', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     tickers: selected,
                     bullish_only: bullishOnly,
                     bearish_only: bearishOnly,
@@ -1664,9 +1663,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 })
             });
             const data = await response.json();
-            
+
             let results = data.results || [];
-            
+
             if (bullishOnly) {
                 results = results.filter(r => r.direction === 'BULLISH');
             }
@@ -1676,9 +1675,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (highConfidence) {
                 results = results.filter(r => (r.trade_score || r.confidence || 0) >= 90);
             }
-            
+
             this.displayScannerResults(results, selected.length);
-            
+
         } catch (error) {
             console.error('Scan error:', error);
             this.displayScannerResults([], 0);
@@ -1688,43 +1687,43 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (scanStatus) scanStatus.style.display = 'none';
         }
     }
-    
+
     displayScannerResults(results, selectedCount = 0) {
         this.lastScanResults = results;
-        
+
         const container = document.getElementById('body-scan-results');
         const list = document.getElementById('body-scan-results-list');
-        
+
         if (!container || !list) return;
-        
+
         const populatedCount = results ? results.length : 0;
         const headerHtml = `<div class="text-center mb-2 small text-info"><i class="bi bi-check2-square"></i> ${selectedCount} checked, ${populatedCount} populated</div>`;
-        
+
         if (!results || results.length === 0) {
             list.innerHTML = headerHtml + '<div class="text-muted text-center py-3">No results to display</div>';
             container.style.display = 'block';
             return;
         }
-        
+
         list.innerHTML = headerHtml;
-        
+
         results.forEach(result => {
             const isBullish = result.direction === 'BULLISH' || result.recommendation === 'CALLS';
             const isBearish = result.direction === 'BEARISH' || result.recommendation === 'PUTS';
-            
+
             const signalColor = isBullish ? 'success' : isBearish ? 'danger' : 'warning';
             const signalText = isBullish ? 'BUY' : isBearish ? 'SELL' : 'NEUTRAL';
             const signalIcon = isBullish ? 'arrow-up-circle-fill' : isBearish ? 'arrow-down-circle-fill' : 'dash-circle-fill';
-            
+
             const score = result.trade_score || 50;
             const price = result.current_price || result.price || 0;
             const reason = (result.reasons && result.reasons.length > 0) ? result.reasons[0] : 'Scanning...';
-            
+
             const item = document.createElement('div');
             item.className = 'scan-result-item mb-2 p-2 rounded';
             item.style.background = isBullish ? 'rgba(34, 197, 94, 0.15)' : isBearish ? 'rgba(239, 68, 68, 0.15)' : 'rgba(234, 179, 8, 0.15)';
             item.style.border = `2px solid ${isBullish ? '#22C55E' : isBearish ? '#EF4444' : '#EAB308'}`;
-            
+
             item.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center">
                     <div class="d-flex align-items-center gap-2">
@@ -1741,7 +1740,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 </div>
                 <div class="small mt-1" style="color: #9CA3AF;">${reason}</div>
             `;
-            
+
             item.style.cursor = 'pointer';
             item.addEventListener('click', () => {
                 const select = document.getElementById('ticker-select');
@@ -1751,23 +1750,23 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                     this.refreshData();
                 }
             });
-            
+
             list.appendChild(item);
         });
-        
+
         container.style.display = 'block';
     }
-    
+
     updateAllScanCounts() {
         const total = Object.keys(this.scannerTickerSelection).length;
         const selected = Object.values(this.scannerTickerSelection).filter(v => v).length;
-        
+
         const bodyScanCount = document.getElementById('body-scan-count');
         if (bodyScanCount) {
             bodyScanCount.textContent = `${selected} of ${total} selected`;
             bodyScanCount.className = 'badge ' + (selected === 0 ? 'bg-danger' : selected === total ? 'bg-success' : 'bg-info');
         }
-        
+
         const bodyScanBtn = document.getElementById('body-scan-btn');
         const bodyScanBtnText = document.getElementById('body-scan-btn-text');
         if (bodyScanBtn && bodyScanBtnText) {
@@ -1779,7 +1778,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 bodyScanBtn.disabled = false;
             }
         }
-        
+
         const refreshBtn = document.getElementById('refresh-signal');
         const refreshText = document.getElementById('refresh-btn-text');
         if (refreshBtn && refreshText) {
@@ -1791,18 +1790,18 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 refreshBtn.disabled = false;
             }
         }
-        
+
         this.updateNavBadge();
         this.updateScannerSelectionCount();
         this.updateModalCount();
     }
-    
+
     renderScannerTickerList(tickers) {
         const container = document.getElementById('scanner-ticker-list');
         if (!container) return;
-        
+
         container.innerHTML = '';
-        
+
         tickers.forEach(ticker => {
             const isSelected = this.scannerTickerSelection[ticker.symbol] !== false;
             const item = document.createElement('div');
@@ -1813,89 +1812,89 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 <span class="ticker-symbol">${ticker.symbol}</span>
                 <span class="not-scanning-label">(skip)</span>
             `;
-            
+
             item.addEventListener('click', () => this.toggleScannerTicker(ticker.symbol));
             container.appendChild(item);
         });
-        
+
         this.updateScannerSelectionCount();
     }
-    
+
     toggleScannerTicker(symbol) {
         this.scannerTickerSelection[symbol] = !this.scannerTickerSelection[symbol];
-        
+
         const item = document.querySelector(`.scanner-ticker-item[data-symbol="${symbol}"]`);
         if (item) {
             item.classList.toggle('selected', this.scannerTickerSelection[symbol]);
             item.classList.toggle('dimmed', !this.scannerTickerSelection[symbol]);
         }
-        
+
         this.saveScannerSelection();
         this.updateScannerSelectionCount();
     }
-    
+
     scannerSelectAll() {
         Object.keys(this.scannerTickerSelection).forEach(symbol => {
             this.scannerTickerSelection[symbol] = true;
         });
-        
+
         document.querySelectorAll('.scanner-ticker-item').forEach(item => {
             item.classList.add('selected');
             item.classList.remove('dimmed');
         });
-        
+
         this.saveScannerSelection();
         this.updateScannerSelectionCount();
     }
-    
+
     scannerDeselectAll() {
         Object.keys(this.scannerTickerSelection).forEach(symbol => {
             this.scannerTickerSelection[symbol] = false;
         });
-        
+
         document.querySelectorAll('.scanner-ticker-item').forEach(item => {
             item.classList.remove('selected');
             item.classList.add('dimmed');
         });
-        
+
         this.saveScannerSelection();
         this.updateScannerSelectionCount();
     }
-    
+
     saveScannerSelection() {
         localStorage.setItem('scannerTickerSelection', JSON.stringify(this.scannerTickerSelection));
     }
-    
+
     updateScannerSelectionCount() {
         const total = Object.keys(this.scannerTickerSelection).length;
         const selected = Object.values(this.scannerTickerSelection).filter(v => v).length;
-        
+
         const countEl = document.getElementById('scanner-selection-count');
         if (countEl) {
             countEl.textContent = `${selected} of ${total} selected`;
             countEl.className = 'badge ' + (selected === 0 ? 'bg-danger' : selected === total ? 'bg-success' : 'bg-info');
         }
     }
-    
+
     getSelectedScannerTickers() {
         return Object.entries(this.scannerTickerSelection)
             .filter(([symbol, selected]) => selected)
             .map(([symbol]) => symbol);
     }
-    
+
     openScannerModal() {
         this.renderModalTickerList();
         const modal = new bootstrap.Modal(document.getElementById('scannerModal'));
         modal.show();
     }
-    
+
     renderModalTickerList() {
         const container = document.getElementById('modal-ticker-list');
         if (!container) return;
-        
+
         container.innerHTML = '';
         const tickers = Object.keys(this.scannerTickerSelection);
-        
+
         tickers.forEach(symbol => {
             const isSelected = this.scannerTickerSelection[symbol] !== false;
             const item = document.createElement('div');
@@ -1908,85 +1907,85 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             item.addEventListener('click', () => this.toggleModalTicker(symbol));
             container.appendChild(item);
         });
-        
+
         this.updateModalCount();
         this.updateNavBadge();
     }
-    
+
     toggleModalTicker(symbol) {
         this.scannerTickerSelection[symbol] = !this.scannerTickerSelection[symbol];
-        
+
         const modalItem = document.querySelector(`#modal-ticker-list .scanner-modal-item[data-symbol="${symbol}"]`);
         if (modalItem) {
             modalItem.classList.toggle('selected', this.scannerTickerSelection[symbol]);
             modalItem.classList.toggle('dimmed', !this.scannerTickerSelection[symbol]);
         }
-        
+
         const scannerItem = document.querySelector(`.scanner-ticker-item[data-symbol="${symbol}"]`);
         if (scannerItem) {
             scannerItem.classList.toggle('selected', this.scannerTickerSelection[symbol]);
             scannerItem.classList.toggle('dimmed', !this.scannerTickerSelection[symbol]);
         }
-        
+
         this.saveScannerSelection();
         this.updateModalCount();
         this.updateScannerSelectionCount();
         this.updateNavBadge();
     }
-    
+
     modalSelectAll() {
         Object.keys(this.scannerTickerSelection).forEach(symbol => {
             this.scannerTickerSelection[symbol] = true;
         });
-        
+
         document.querySelectorAll('#modal-ticker-list .scanner-modal-item').forEach(item => {
             item.classList.add('selected');
             item.classList.remove('dimmed');
         });
-        
+
         document.querySelectorAll('.scanner-ticker-item').forEach(item => {
             item.classList.add('selected');
             item.classList.remove('dimmed');
         });
-        
+
         this.saveScannerSelection();
         this.updateModalCount();
         this.updateScannerSelectionCount();
         this.updateNavBadge();
     }
-    
+
     modalDeselectAll() {
         Object.keys(this.scannerTickerSelection).forEach(symbol => {
             this.scannerTickerSelection[symbol] = false;
         });
-        
+
         document.querySelectorAll('#modal-ticker-list .scanner-modal-item').forEach(item => {
             item.classList.remove('selected');
             item.classList.add('dimmed');
         });
-        
+
         document.querySelectorAll('.scanner-ticker-item').forEach(item => {
             item.classList.remove('selected');
             item.classList.add('dimmed');
         });
-        
+
         this.saveScannerSelection();
         this.updateModalCount();
         this.updateScannerSelectionCount();
         this.updateNavBadge();
     }
-    
+
     updateModalCount() {
         const total = Object.keys(this.scannerTickerSelection).length;
         const selected = Object.values(this.scannerTickerSelection).filter(v => v).length;
-        
+
         const countEl = document.getElementById('modal-scanner-count');
         if (countEl) {
             countEl.textContent = `${selected} of ${total} selected`;
             countEl.className = 'badge ' + (selected === 0 ? 'bg-danger' : selected === total ? 'bg-success' : 'bg-info');
         }
     }
-    
+
     updateNavBadge() {
         const selected = Object.values(this.scannerTickerSelection).filter(v => v).length;
         const badge = document.getElementById('scanner-badge');
@@ -1995,26 +1994,26 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             badge.className = 'badge ms-1 ' + (selected === 0 ? 'bg-danger text-white' : 'bg-light text-dark');
         }
     }
-    
+
     async runModalScan() {
         const selectedTickers = this.getSelectedScannerTickers();
-        
+
         if (selectedTickers.length === 0) {
             this.showScannerError();
             return;
         }
-        
+
         const btn = document.getElementById('modal-scan-btn');
         const status = document.getElementById('modal-scanner-status');
         const scanText = document.getElementById('modal-scan-text');
-        
+
         const filters = {
             bullish_only: document.getElementById('modal-filter-bullish')?.checked || false,
             bearish_only: document.getElementById('modal-filter-bearish')?.checked || false,
             min_score: document.getElementById('modal-filter-high')?.checked ? 90 : 0,
             tickers: selectedTickers
         };
-        
+
         if (btn) btn.disabled = true;
         if (status) status.style.display = 'block';
         if (scanText) {
@@ -2022,21 +2021,21 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             const more = selectedTickers.length > 3 ? `... (${selectedTickers.length} tickers)` : '';
             scanText.textContent = `Scanning ${tickerList}${more}`;
         }
-        
+
         try {
             const response = await fetch('/api/scan-top-10', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(filters)
             });
-            
+
             const data = await response.json();
-            
+
             bootstrap.Modal.getInstance(document.getElementById('scannerModal'))?.hide();
-            
+
             const results = document.getElementById('scanner-results');
             const summary = document.getElementById('scanner-summary');
-            
+
             if (summary && data.summary) {
                 document.getElementById('summary-analyzed').textContent = `${data.summary.successful}/${data.summary.total_analyzed}`;
                 document.getElementById('summary-bullish').textContent = data.summary.bullish_setups;
@@ -2044,7 +2043,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 document.getElementById('summary-high-conf').textContent = data.summary.high_confidence;
                 summary.style.display = 'block';
             }
-            
+
             if (results) {
                 if (!data.results || data.results.length === 0) {
                     results.innerHTML = '<div class="text-center text-muted py-3">No stocks matched your filters</div>';
@@ -2052,7 +2051,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                     results.innerHTML = data.results.map(r => this.renderScanResult(r)).join('');
                 }
             }
-            
+
         } catch (error) {
             console.error('Modal scan error:', error);
         } finally {
@@ -2060,7 +2059,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (status) status.style.display = 'none';
         }
     }
-    
+
     async loadSettings() {
         try {
             const response = await fetch('/api/settings');
@@ -2068,7 +2067,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.audioEnabled = this.settings.audio_enabled !== false;
             this.audioVolume = (this.settings.audio_volume || 50) / 100;
             this.updateAudioToggle();
-            
+
             const saved = localStorage.getItem('indicatorToggles');
             if (saved) {
                 this.indicatorToggles = JSON.parse(saved);
@@ -2081,7 +2080,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             console.error('Error loading settings:', error);
         }
     }
-    
+
     async loadSignals() {
         try {
             const response = await fetch('/api/signals?limit=20');
@@ -2089,18 +2088,18 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             const feed = document.getElementById('signal-feed');
             if (!feed) return;
             feed.innerHTML = '';
-            
+
             if (signals.length === 0) {
                 feed.innerHTML = '<div class="list-group-item bg-dark text-muted text-center py-3">No signals yet</div>';
                 return;
             }
-            
+
             signals.slice(0, 10).forEach(signal => this.addSignalToFeed(signal, false));
         } catch (error) {
             console.error('Error loading signals:', error);
         }
     }
-    
+
     bindEvents() {
         const tickerSelect = document.getElementById('ticker-select');
         if (tickerSelect) {
@@ -2111,7 +2110,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 this.refreshData();
             });
         }
-        
+
         document.querySelectorAll('.timeframe-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 document.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
@@ -2123,7 +2122,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 this.loadTradeRecommendation();
             });
         });
-        
+
         document.querySelectorAll('[data-period]').forEach(btn => {
             if (!btn.dataset.interval) {
                 btn.addEventListener('click', (e) => {
@@ -2132,7 +2131,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 });
             }
         });
-        
+
         ['chart-line', 'chart-candle', 'chart-heiken'].forEach(id => {
             const btn = document.getElementById(id);
             if (btn) {
@@ -2144,10 +2143,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 });
             }
         });
-        
+
         const refreshBtn = document.getElementById('refresh-signal');
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.refreshData());
-        
+
         const audioToggle = document.getElementById('audio-toggle');
         if (audioToggle) {
             audioToggle.addEventListener('click', () => {
@@ -2155,7 +2154,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 this.updateAudioToggle();
             });
         }
-        
+
         const toggleAdvanced = document.getElementById('toggle-advanced');
         if (toggleAdvanced) {
             toggleAdvanced.addEventListener('click', () => {
@@ -2167,25 +2166,25 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 if (this.advancedVisible) this.loadAdvancedData();
             });
         }
-        
+
         const addTickerSubmit = document.getElementById('add-ticker-submit');
         if (addTickerSubmit) addTickerSubmit.addEventListener('click', () => this.addTicker());
-        
+
         const newTickerInput = document.getElementById('new-ticker');
         if (newTickerInput) {
             newTickerInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') this.addTicker();
             });
         }
-        
+
         const removeTickerBtn = document.getElementById('remove-ticker-btn');
         if (removeTickerBtn) {
             removeTickerBtn.addEventListener('click', () => this.confirmRemoveTicker());
         }
-        
+
         const saveSettings = document.getElementById('save-settings');
         if (saveSettings) saveSettings.addEventListener('click', () => this.saveSettings());
-        
+
         const audioVolumeSlider = document.getElementById('audio-volume');
         if (audioVolumeSlider) {
             audioVolumeSlider.addEventListener('input', (e) => {
@@ -2193,93 +2192,93 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 document.getElementById('volume-level-display').textContent = e.target.value + '%';
             });
         }
-        
+
         const testBuySound = document.getElementById('test-buy-sound');
         if (testBuySound) testBuySound.addEventListener('click', () => this.playBuyAlert());
-        
+
         const testSellSound = document.getElementById('test-sell-sound');
         if (testSellSound) testSellSound.addEventListener('click', () => this.playSellAlert());
-        
+
         document.querySelectorAll('[id^="toggle-"]').forEach(toggle => {
             toggle.addEventListener('change', () => this.updateIndicatorCount());
         });
-        
+
         const paperBuyBtn = document.getElementById('paper-buy-btn');
         const paperSellBtn = document.getElementById('paper-sell-btn');
         if (paperBuyBtn) paperBuyBtn.addEventListener('click', () => this.openPaperTrade('long'));
         if (paperSellBtn) paperSellBtn.addEventListener('click', () => this.openPaperTrade('short'));
-        
+
         const paperExecute = document.getElementById('paper-execute');
         if (paperExecute) paperExecute.addEventListener('click', () => this.executePaperTrade());
-        
+
         const scanBtn = document.getElementById('scan-top-10-btn');
         if (scanBtn) scanBtn.addEventListener('click', () => this.scanTop10());
-        
+
         const selectAllBtn = document.getElementById('scanner-select-all');
         if (selectAllBtn) selectAllBtn.addEventListener('click', () => this.scannerSelectAll());
-        
+
         const deselectAllBtn = document.getElementById('scanner-deselect-all');
         if (deselectAllBtn) deselectAllBtn.addEventListener('click', () => this.scannerDeselectAll());
-        
+
         const openScannerModal = document.getElementById('open-scanner-modal');
         if (openScannerModal) openScannerModal.addEventListener('click', () => this.openScannerModal());
-        
+
         const modalSelectAll = document.getElementById('modal-select-all');
         if (modalSelectAll) modalSelectAll.addEventListener('click', () => this.modalSelectAll());
-        
+
         const modalDeselectAll = document.getElementById('modal-deselect-all');
         if (modalDeselectAll) modalDeselectAll.addEventListener('click', () => this.modalDeselectAll());
-        
+
         const modalScanBtn = document.getElementById('modal-scan-btn');
         if (modalScanBtn) modalScanBtn.addEventListener('click', () => this.runModalScan());
-        
+
         const bodySelectAll = document.getElementById('body-select-all');
         if (bodySelectAll) bodySelectAll.addEventListener('click', () => this.bodySelectAll());
-        
+
         const bodyDeselectAll = document.getElementById('body-deselect-all');
         if (bodyDeselectAll) bodyDeselectAll.addEventListener('click', () => this.bodyDeselectAll());
-        
+
         const bodyScanBtn = document.getElementById('body-scan-btn');
         if (bodyScanBtn) bodyScanBtn.addEventListener('click', () => this.runBodyScan());
-        
+
         const prevTickerBtn = document.getElementById('prev-ticker-btn');
         if (prevTickerBtn) prevTickerBtn.addEventListener('click', () => this.navigateTicker(-1));
-        
+
         const nextTickerBtn = document.getElementById('next-ticker-btn');
         if (nextTickerBtn) nextTickerBtn.addEventListener('click', () => this.navigateTicker(1));
-        
+
         const exportScanBtn = document.getElementById('export-scan-btn');
         if (exportScanBtn) exportScanBtn.addEventListener('click', () => this.exportScanResults());
-        
+
         const refreshNewsBtn = document.getElementById('refresh-news-btn');
         if (refreshNewsBtn) refreshNewsBtn.addEventListener('click', () => this.loadNewsData());
     }
-    
+
     navigateTicker(direction) {
         const select = document.getElementById('ticker-select');
         if (!select) return;
-        
+
         const options = Array.from(select.options);
         const currentIndex = options.findIndex(opt => opt.value === this.currentTicker);
         let newIndex = currentIndex + direction;
-        
+
         if (newIndex < 0) newIndex = options.length - 1;
         if (newIndex >= options.length) newIndex = 0;
-        
+
         this.currentTicker = options[newIndex].value;
         select.value = this.currentTicker;
         this.refreshData();
     }
-    
+
     exportScanResults() {
         if (!this.lastScanResults || this.lastScanResults.length === 0) {
             alert('No scan results to export. Run a scan first.');
             return;
         }
-        
+
         const now = new Date();
-        const timestamp = now.toISOString().slice(0,16).replace('T','_').replace(':','-');
-        
+        const timestamp = now.toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
+
         const escapeCSV = (str) => {
             if (!str) return '';
             str = String(str);
@@ -2288,7 +2287,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
             return str;
         };
-        
+
         let csv = 'Ticker,Signal,Score,Price,Reason,Timestamp\n';
         this.lastScanResults.forEach(r => {
             const signal = r.direction === 'BULLISH' ? 'BUY' : r.direction === 'BEARISH' ? 'SELL' : 'NEUTRAL';
@@ -2296,7 +2295,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             const reasons = (r.reasons && r.reasons.length > 0) ? r.reasons.join(' | ') : '';
             csv += `${r.symbol},${signal},${r.trade_score || 0},$${price.toFixed(2)},${escapeCSV(reasons)},${now.toISOString()}\n`;
         });
-        
+
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -2305,11 +2304,11 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         a.click();
         URL.revokeObjectURL(url);
     }
-    
+
     bindKeyboardShortcuts() {
         document.addEventListener('keydown', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            
+
             switch (e.code) {
                 case 'Space':
                     e.preventDefault();
@@ -2325,27 +2324,27 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
         });
     }
-    
+
     startTimers() {
         setInterval(() => {
             this.updateTime();
             this.updateMarketStatus();
             this.updateDataStaleness();
         }, 1000);
-        
+
         // Dynamic refresh rate - faster during extended hours when data is more volatile
         this.startDynamicRefresh();
-        
+
         this.updateMotivationalQuote();
         setInterval(() => this.updateMotivationalQuote(), 60000);
     }
-    
+
     startDynamicRefresh() {
         const getRefreshInterval = () => {
             const now = new Date();
             const hour = now.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false });
             const hourNum = parseInt(hour);
-            
+
             // Regular market hours (9:30-16:00 ET): 8 second refresh
             // Extended hours: 5 second refresh for faster updates
             if (hourNum >= 10 && hourNum < 16) {
@@ -2354,7 +2353,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 return 5000; // Faster refresh during extended hours
             }
         };
-        
+
         const scheduleNextRefresh = () => {
             const interval = getRefreshInterval();
             setTimeout(() => {
@@ -2362,10 +2361,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 scheduleNextRefresh();
             }, interval);
         };
-        
+
         scheduleNextRefresh();
     }
-    
+
     updateDataStaleness() {
         const lastRefreshEl = document.getElementById('last-refresh-time');
         if (lastRefreshEl && this.lastRefreshTimestamp) {
@@ -2379,24 +2378,24 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
         }
     }
-    
+
     updateMotivationalQuote() {
         const el = document.getElementById('daily-motivation');
         if (el) {
             el.textContent = this.getMotivationalQuote();
         }
     }
-    
+
     updateTime() {
         const now = new Date();
         const el = document.getElementById('current-time');
         if (el) {
-            el.textContent = now.toLocaleTimeString('en-US', { 
+            el.textContent = now.toLocaleTimeString('en-US', {
                 timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
             }) + ' ET';
         }
     }
-    
+
     async updateMarketStatus() {
         const badge = document.getElementById('market-status');
         const textEl = document.getElementById('session-text');
@@ -2423,7 +2422,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.updateSessionBanner(null);
         }
     }
-    
+
     updateSessionBanner(status) {
         const iconEl = document.getElementById('session-icon');
         const textEl = document.getElementById('session-text');
@@ -2431,9 +2430,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const checklistEl = document.getElementById('signal-checklist');
         const checklistText = document.getElementById('checklist-text');
         const bannerEl = document.getElementById('market-session-banner');
-        
+
         if (!textEl) return;
-        
+
         const session = status?.current_session;
         let icon = '⏳';
         let text = 'Loading...';
@@ -2441,45 +2440,45 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         let badgeClass = 'bg-secondary';
         let checklist = '';
         let bannerBg = 'rgba(0,0,0,0.5)';
-        
+
         if (!status || session == null) {
             icon = '📡';
             text = 'Data loaded. Use Refresh or reload page for live market status.';
             badge = '—';
         } else {
-        const isMarketOpen = status.is_market_open === true;
-        
-        if (session === 'PRE_MARKET') {
-            icon = '🌅';
-            text = 'Pre-Market: Analyzing stocks before market open';
-            badge = 'Scanning';
-            badgeClass = 'bg-info';
-            checklist = 'Pre-market analysis active. Confirm signals after market opens.';
-            bannerBg = 'rgba(59, 130, 246, 0.15)';
-        } else if (isMarketOpen || session === 'REGULAR' || session === 'MARKET_OPEN' || session === 'MID_MORNING' || session === 'MIDDAY' || session === 'AFTERNOON' || session === 'POWER_HOUR') {
-            icon = '🟢';
-            text = 'Market Open: Full signals active all day';
-            badge = 'ACTIVE';
-            badgeClass = 'bg-success';
-            checklist = '';
-            bannerBg = 'rgba(34, 197, 94, 0.15)';
-        } else if (session === 'AFTER_HOURS') {
-            icon = '🌙';
-            text = 'After-Hours: Market closed, reviewing data only';
-            badge = 'Closed';
-            badgeClass = 'bg-secondary';
-            checklist = 'Use this time to review today\'s signals and prepare for tomorrow.';
-            bannerBg = 'rgba(100, 100, 100, 0.15)';
-        } else {
-            icon = '😴';
-            text = 'Market Closed: Next session opens at 9:30 AM ET';
-            badge = 'Closed';
-            badgeClass = 'bg-secondary';
-            checklist = 'Market is closed. Signals will activate when trading resumes.';
-            bannerBg = 'rgba(100, 100, 100, 0.15)';
+            const isMarketOpen = status.is_market_open === true;
+
+            if (session === 'PRE_MARKET') {
+                icon = '🌅';
+                text = 'Pre-Market: Analyzing stocks before market open';
+                badge = 'Scanning';
+                badgeClass = 'bg-info';
+                checklist = 'Pre-market analysis active. Confirm signals after market opens.';
+                bannerBg = 'rgba(59, 130, 246, 0.15)';
+            } else if (isMarketOpen || session === 'REGULAR' || session === 'MARKET_OPEN' || session === 'MID_MORNING' || session === 'MIDDAY' || session === 'AFTERNOON' || session === 'POWER_HOUR') {
+                icon = '🟢';
+                text = 'Market Open: Full signals active all day';
+                badge = 'ACTIVE';
+                badgeClass = 'bg-success';
+                checklist = '';
+                bannerBg = 'rgba(34, 197, 94, 0.15)';
+            } else if (session === 'AFTER_HOURS') {
+                icon = '🌙';
+                text = 'After-Hours: Market closed, reviewing data only';
+                badge = 'Closed';
+                badgeClass = 'bg-secondary';
+                checklist = 'Use this time to review today\'s signals and prepare for tomorrow.';
+                bannerBg = 'rgba(100, 100, 100, 0.15)';
+            } else {
+                icon = '😴';
+                text = 'Market Closed: Next session opens at 9:30 AM ET';
+                badge = 'Closed';
+                badgeClass = 'bg-secondary';
+                checklist = 'Market is closed. Signals will activate when trading resumes.';
+                bannerBg = 'rgba(100, 100, 100, 0.15)';
+            }
         }
-        }
-        
+
         if (iconEl) iconEl.textContent = icon;
         if (textEl) textEl.textContent = text;
         if (badgeEl) {
@@ -2498,17 +2497,17 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             bannerEl.style.background = bannerBg;
         }
     }
-    
+
     async refreshData() {
         const refreshBtn = document.getElementById('refresh-signal');
         const refreshText = document.getElementById('refresh-btn-text');
         const lastRefreshEl = document.getElementById('last-refresh-time');
-        
+
         if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.classList.add('refreshing'); }
         if (refreshText) refreshText.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Refreshing...';
-        
+
         this.loadLastHourScan();
-        
+
         const critical = [
             () => this.updateMarketStatus(),
             () => this.loadTradeRecommendation(),
@@ -2522,17 +2521,17 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             () => this.loadOptionsFlowData(),
             () => this.loadMultiTimeframeAnalysis()
         ];
-        
+
         for (const fn of critical) {
             try { await fn(); } catch (e) { console.warn('Refresh:', e); }
         }
         this.clearLoadingState();
-        
+
         Promise.allSettled(secondary.map(fn => fn().catch(e => console.warn(e)))).then(() => {
             this.updateWinRate();
             if (this.advancedVisible) this.loadAdvancedData();
         });
-        
+
         const now = new Date();
         this.lastRefreshTimestamp = Date.now();
         const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -2543,14 +2542,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         }
         this.showRefreshSuccess();
         this.clearLoadingState();
-        
+
         if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.classList.remove('refreshing'); }
         if (refreshText) {
             const selected = Object.keys(this.scannerTickerSelection || {}).filter(k => this.scannerTickerSelection[k]).length;
             refreshText.innerHTML = `<i class="bi bi-arrow-clockwise"></i> Refresh Analysis`;
         }
     }
-    
+
     clearLoadingState() {
         const badge = document.getElementById('market-status');
         const textEl = document.getElementById('session-text');
@@ -2577,7 +2576,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             lastUpdatedEl.textContent = 'Updated: —';
         }
     }
-    
+
     showRefreshSuccess() {
         const signalPanel = document.getElementById('main-signal-panel');
         if (signalPanel) {
@@ -2585,20 +2584,20 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             setTimeout(() => signalPanel.classList.remove('flash-update'), 500);
         }
     }
-    
+
     async loadMultiTimeframeAnalysis() {
         try {
             const response = await fetch(`/api/multi-timeframe/${this.currentTicker}?_t=${Date.now()}`);
             const data = await response.json();
-            
+
             this.updateTimeframePanel(data);
             this.updateConfluenceDisplay(data.confluence);
-            
+
         } catch (error) {
             console.error('Error loading multi-timeframe:', error);
         }
     }
-    
+
     async loadScalpingLevels() {
         const loadingEl = document.getElementById('scalping-loading');
         const bestRangeEl = document.getElementById('scalping-best-range');
@@ -2661,25 +2660,25 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (timeframesEl) timeframesEl.innerHTML = '';
         }
     }
-    
+
     updateTimeframePanel(data) {
         const container = document.getElementById('timeframe-confluence');
         if (!container) return;
-        
+
         const timeframes = data.timeframes || {};
         const tfOrder = ['1m', '5m', '15m', '1h', '4h'];
-        
+
         let html = '<div class="d-flex justify-content-between align-items-center mb-2">';
         html += '<small class="text-muted">Multi-Timeframe Confluence</small>';
         html += `<small class="text-info" id="mtf-refresh-time">${data.refresh_id || ''}</small>`;
         html += '</div>';
         html += '<div class="timeframe-grid">';
-        
+
         tfOrder.forEach(tf => {
             const tfData = timeframes[tf] || { signal: 'N/A', color: '#888' };
-            const signalClass = tfData.trend === 'BULLISH' ? 'tf-bullish' : 
-                               tfData.trend === 'BEARISH' ? 'tf-bearish' : 'tf-neutral';
-            
+            const signalClass = tfData.trend === 'BULLISH' ? 'tf-bullish' :
+                tfData.trend === 'BEARISH' ? 'tf-bearish' : 'tf-neutral';
+
             html += `
                 <div class="tf-item ${signalClass}" title="RSI: ${tfData.rsi || 'N/A'} | MACD: ${tfData.macd_signal || 'N/A'}">
                     <div class="tf-label">${tf}</div>
@@ -2690,9 +2689,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 </div>
             `;
         });
-        
+
         html += '</div>';
-        
+
         const confluence = data.confluence || {};
         html += `
             <div class="confluence-summary mt-2 p-2 rounded" style="background: rgba(0,0,0,0.3); border-left: 3px solid ${confluence.color || '#888'}">
@@ -2702,22 +2701,22 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 </div>
             </div>
         `;
-        
+
         container.innerHTML = html;
         container.classList.add('flash-update');
         setTimeout(() => container.classList.remove('flash-update'), 500);
-        
+
         // Update entry timing note based on main signal state
         this.updateEntryTimingNote(confluence);
     }
-    
+
     updateEntryTimingNote(confluence) {
         const noteEl = document.getElementById('entry-timing-note');
         if (!noteEl) return;
-        
+
         const mainSignal = this.lastTradeData?.main_signal || 'WAIT';
         const isBullish = confluence?.bullish_count > confluence?.bearish_count;
-        
+
         let noteText = '';
         if (mainSignal === 'PREPARE') {
             if (isBullish) {
@@ -2733,10 +2732,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             noteText = '<i class="bi bi-dash-circle"></i> No confluence edge — wait.';
             noteEl.style.display = 'block';
         }
-        
+
         noteEl.innerHTML = noteText;
     }
-    
+
     updateConfluenceDisplay(confluence) {
         const confluenceEl = document.getElementById('confluence-signal');
         if (confluenceEl && confluence) {
@@ -2744,19 +2743,19 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             confluenceEl.style.color = confluence.color || '#F59E0B';
         }
     }
-    
+
     async loadEarningsData() {
         try {
             const response = await fetch(`/api/earnings/${this.currentTicker}`);
             const data = await response.json();
-            
+
             const earningsWarning = document.getElementById('earnings-warning');
             const earningsText = document.getElementById('earnings-text');
-            
+
             if (earningsWarning && data.warning) {
                 earningsWarning.style.display = 'inline-block';
                 earningsText.textContent = data.message || `Earnings in ${data.days_until} days!`;
-                
+
                 if (data.urgency === 'CRITICAL') {
                     earningsWarning.className = 'badge bg-danger p-2 earnings-pulse';
                     earningsWarning.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> <span id="earnings-text">${data.message}</span>`;
@@ -2770,23 +2769,23 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             } else if (earningsWarning) {
                 earningsWarning.style.display = 'none';
             }
-        } catch (error) {}
+        } catch (error) { }
     }
-    
+
     async loadNewsData() {
         try {
             const response = await fetch(`/api/news/${this.currentTicker}?limit=5`);
             const data = await response.json();
-            
+
             const newsList = document.getElementById('news-list');
             if (!newsList) return;
-            
+
             if (data.news && data.news.length > 0) {
                 newsList.innerHTML = data.news.map(item => {
-                    const sentimentClass = item.sentiment === 'bullish' ? 'news-bullish' : 
-                                          item.sentiment === 'bearish' ? 'news-bearish' : 'news-neutral';
-                    const sentimentIcon = item.sentiment === 'bullish' ? '<i class="bi bi-arrow-up-circle-fill text-success"></i>' : 
-                                         item.sentiment === 'bearish' ? '<i class="bi bi-arrow-down-circle-fill text-danger"></i>' : '';
+                    const sentimentClass = item.sentiment === 'bullish' ? 'news-bullish' :
+                        item.sentiment === 'bearish' ? 'news-bearish' : 'news-neutral';
+                    const sentimentIcon = item.sentiment === 'bullish' ? '<i class="bi bi-arrow-up-circle-fill text-success"></i>' :
+                        item.sentiment === 'bearish' ? '<i class="bi bi-arrow-down-circle-fill text-danger"></i>' : '';
                     return `
                     <a href="${item.link}" target="_blank" class="list-group-item list-group-item-action bg-transparent text-light border-secondary py-2 ${sentimentClass}">
                         <div class="d-flex w-100 justify-content-between align-items-start">
@@ -2803,19 +2802,19 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             console.error('Error loading news:', error);
         }
     }
-    
+
     async loadOptionsFlowData() {
         try {
             const response = await fetch(`/api/options-flow/${this.currentTicker}?_t=${Date.now()}`);
             const data = await response.json();
-            
+
             const ivBadge = document.getElementById('iv-badge');
             const ivRankValue = document.getElementById('iv-rank-value');
-            
+
             if (ivBadge && data.iv_rank !== undefined) {
                 ivBadge.style.display = 'inline-block';
                 ivRankValue.textContent = data.iv_rank.toFixed(0);
-                
+
                 if (data.iv_rank < 25) {
                     ivBadge.className = 'badge bg-success p-2';
                     ivBadge.title = 'IV is LOW - Options are cheap. Good time to buy options!';
@@ -2830,27 +2829,27 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                     ivBadge.title = 'IV is HIGH - Options are expensive! Consider selling instead.';
                 }
             }
-        } catch (error) {}
+        } catch (error) { }
     }
-    
+
     updateWinRate() {
         const winRateBadge = document.getElementById('win-rate-value');
         if (!winRateBadge) return;
-        
+
         // Hide win rate until we have meaningful data (minimum 20 resolved trades)
         const minTradesRequired = 20;
-        
+
         const signals = this.signalHistory.filter(s => s.ticker === this.currentTicker);
         const total = signals.length;
-        
+
         if (total === 0) {
             winRateBadge.textContent = '--';
             return;
         }
-        
+
         const recentSignals = signals.slice(-20);
         let wins = 0;
-        
+
         for (let i = 0; i < recentSignals.length - 1; i++) {
             const sig = recentSignals[i];
             const nextSig = recentSignals[i + 1];
@@ -2860,7 +2859,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 if (nextSig.price < sig.price) wins++;
             }
         }
-        
+
         // Only show win rate if we have enough data for meaningful statistics
         const resolvedTrades = recentSignals.length - 1;
         if (resolvedTrades < minTradesRequired) {
@@ -2872,10 +2871,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
             return;
         }
-        
+
         const winRate = Math.round((wins / resolvedTrades) * 100);
         winRateBadge.textContent = winRate;
-        
+
         const badge = document.getElementById('win-rate-badge');
         if (badge) {
             if (winRate >= 70) badge.className = 'badge bg-success p-2';
@@ -2883,13 +2882,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             else badge.className = 'badge bg-warning text-dark p-2';
         }
     }
-    
+
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
     }
-    
+
     async loadTradeRecommendation() {
         const currentPriceEl = document.getElementById('current-price');
         const priceChangeEl = document.getElementById('price-change');
@@ -2898,7 +2897,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             const cacheBuster = Date.now();
             const response = await fetch(`/api/trade-recommendation/${this.currentTicker}?interval=${this.currentInterval}&_t=${cacheBuster}`);
             const data = await response.json();
-            
+
             if (data.error || !data.current_price) {
                 console.warn('Trade recommendation:', data.error || 'No price data');
                 if (currentPriceEl) currentPriceEl.innerHTML = '<span class="text-muted">Refresh for live price</span>';
@@ -2906,7 +2905,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
                 return;
             }
-            
+
             this.updateTrafficLight(data.main_signal);
             this.updateMainSignalPanel(data);
             this.updateRecommendationPanels(data);
@@ -2916,13 +2915,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (typeof this.loadScalpingLevels === 'function') this.loadScalpingLevels();
             this.checkHotStock(data);
             this.handleTrendReversalAlert(data);
-            
+
             const lastUpdated = document.getElementById('last-updated');
             if (lastUpdated) {
                 const now = new Date();
                 lastUpdated.textContent = 'Updated: ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             }
-            
+
             const isNewSignal = this.lastSignal?.type !== data.main_signal;
             if (isNewSignal && data.main_signal !== 'WAIT' && this.audioEnabled) {
                 if (data.main_signal === 'BUY' || data.main_signal === 'STRONG BUY') {
@@ -2943,18 +2942,18 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 this.lastSignal = { type: data.main_signal, time: Date.now() };
                 this.logSignal(this.currentTicker, data.main_signal, data.current_price, data.strength, data.reasons);
             }
-            
+
         } catch (error) {
             console.error('Error loading trade recommendation:', error);
         }
     }
-    
+
     getSignalBadge(data) {
         const confidence = data.confidence_pct || data.strength || 0;
         const volumeMultiplier = data.indicators?.volume?.spike_ratio || 1;
         const signalState = data.main_signal || 'WAIT';
         const timeCT = data.time_ct || '';
-        
+
         // Parse CT time to check if after 2:30 PM (14:30)
         let hourCT = 0;
         if (timeCT) {
@@ -2964,19 +2963,19 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const isLateSession = hourCT >= 14 && parseInt(timeCT.split(':')[1]) >= 30;
         const isPreMarket = data.market_status?.current_session === 'PRE_MARKET';
         const isMarketHours = data.market_status?.current_session === 'REGULAR';
-        
+
         // HOT badge rules: only show when confidence >= 85, volume >= 1.2x, 
         // and (BUY/SELL OR PREPARE during market hours)
         // Never show in pre-market or after 2:30 PM CT
         const isBuySell = signalState.includes('BUY') || signalState.includes('SELL');
         const isPrepareInMarket = signalState === 'PREPARE' && isMarketHours;
-        
-        const showHot = confidence >= 85 && 
-                       volumeMultiplier >= 1.2 && 
-                       (isBuySell || isPrepareInMarket) && 
-                       !isPreMarket && 
-                       !isLateSession;
-        
+
+        const showHot = confidence >= 85 &&
+            volumeMultiplier >= 1.2 &&
+            (isBuySell || isPrepareInMarket) &&
+            !isPreMarket &&
+            !isLateSession;
+
         if (showHot) {
             return { type: 'hot', text: 'HOT', icon: 'bi-fire', class: 'bg-danger' };
         } else if (isBuySell) {
@@ -2987,20 +2986,20 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             return null; // No badge for NEUTRAL/WAIT
         }
     }
-    
+
     checkHotStock(data) {
         const panel = document.getElementById('main-signal-panel');
         const badge = this.getSignalBadge(data);
         const isHot = badge?.type === 'hot';
-        
+
         if (panel) {
             panel.classList.toggle('hot-stock', isHot);
         }
-        
+
         // Remove existing badge
         const existingBadge = document.getElementById('signal-badge');
         if (existingBadge) existingBadge.remove();
-        
+
         // Add new badge if applicable
         if (badge) {
             const signalText = document.getElementById('main-signal-text');
@@ -3013,15 +3012,15 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 signalText.parentNode.insertBefore(badgeEl, signalText.nextSibling);
             }
         }
-        
+
         this.trackSignalPerformance(data);
     }
-    
+
     toggleDebugMode() {
         this.debugMode = !this.debugMode;
         const panel = document.getElementById('debug-panel');
         const toggle = document.getElementById('debug-toggle');
-        
+
         if (panel) {
             panel.style.display = this.debugMode ? 'block' : 'none';
         }
@@ -3031,15 +3030,15 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             toggle.classList.toggle('btn-outline-dark', !this.debugMode);
         }
     }
-    
+
     updateDebugPanel(data) {
         if (!this.debugMode) return;
-        
+
         const setEl = (id, value) => {
             const el = document.getElementById(id);
             if (el) el.textContent = value || '--';
         };
-        
+
         setEl('debug-time-ct', data.time_ct);
         setEl('debug-session', data.market_status?.current_session);
         setEl('debug-confidence', data.confidence_pct ? `${data.confidence_pct.toFixed(1)}%` : '--');
@@ -3050,7 +3049,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         setEl('debug-wait-for', data.wait_for_text || 'N/A');
         setEl('debug-15m-trend', data.higher_tf_trend || '--');
     }
-    
+
     updateConfidenceFactors(data) {
         const setFactor = (id, label, pass) => {
             const el = document.getElementById(id);
@@ -3066,19 +3065,19 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 el.className = 'text-danger';
             }
         };
-        
+
         const ind = data.indicators || {};
         const reasons = (data.reasons || []).join(' ').toLowerCase();
-        
-        const trendPass = reasons.includes('bullish') || reasons.includes('uptrend') || 
-                          (ind.macd && ind.macd.histogram > 0 && data.direction === 'BULLISH') ||
-                          (ind.macd && ind.macd.histogram < 0 && data.direction === 'BEARISH');
+
+        const trendPass = reasons.includes('bullish') || reasons.includes('uptrend') ||
+            (ind.macd && ind.macd.histogram > 0 && data.direction === 'BULLISH') ||
+            (ind.macd && ind.macd.histogram < 0 && data.direction === 'BEARISH');
         const vwapPass = ind.vwap ? (data.direction === 'BULLISH' ? ind.vwap.above : !ind.vwap.above) : null;
         const volumePass = ind.volume ? ind.volume.spike_ratio >= 1.2 : null;
         const rsiPass = ind.rsi ? (ind.rsi.value >= 30 && ind.rsi.value <= 70) : null;
         const macdPass = ind.macd ? Math.abs(ind.macd.histogram) > 0.01 : null;
         const tfPass = data.timeframe_confluence ? data.timeframe_confluence >= 3 : null;
-        
+
         setFactor('cf-trend', 'Trend', trendPass);
         setFactor('cf-vwap', 'VWAP', vwapPass);
         setFactor('cf-volume', 'Volume', volumePass);
@@ -3086,11 +3085,11 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         setFactor('cf-rsi', 'RSI', rsiPass);
         setFactor('cf-macd', 'MACD', macdPass);
     }
-    
+
     updateTrafficLight(signal) {
         const lights = document.querySelectorAll('.traffic-light .light');
         lights.forEach(l => l.classList.remove('active'));
-        
+
         if (signal === 'BUY' || signal === 'STRONG BUY') {
             document.querySelector('.traffic-light .light.green')?.classList.add('active');
         } else if (signal === 'SELL' || signal === 'STRONG SELL') {
@@ -3100,7 +3099,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         } else {
             document.querySelector('.traffic-light .light.yellow')?.classList.add('active');
         }
-        
+
         const panel = document.getElementById('main-signal-panel');
         if (panel) {
             let signalClass = 'wait';
@@ -3111,13 +3110,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             else if (signal === 'PREPARE') signalClass = 'prepare';
             else if (signal === 'WATCH') signalClass = 'watch';
             panel.className = 'card mb-3 signal-' + signalClass;
-            
+
             if (this.lotteryHourActive) {
                 panel.classList.add('lottery-hour-mode');
             }
         }
     }
-    
+
     updateMainSignalPanel(data) {
         const signalText = document.getElementById('main-signal-text');
         if (signalText) {
@@ -3127,13 +3126,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
             signalText.innerHTML = displaySignal;
         }
-        
+
         const tfLabel = document.getElementById('chart-timeframe-label');
         const tfNote = tfLabel ? ` (${tfLabel.textContent} timeframe)` : '';
-        
+
         const summary = document.getElementById('signal-summary');
         if (summary) summary.textContent = data.summary + tfNote;
-        
+
         // Options Edge: one clear call (CALL / PUT / FLAT)
         const edgeEl = document.getElementById('signal-edge');
         if (edgeEl && data.edge_direction) {
@@ -3149,14 +3148,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         } else if (edgeEl) {
             edgeEl.style.display = 'none';
         }
-        
+
         // Education text below signal
         const educationEl = document.getElementById('signal-education');
         if (educationEl) {
             educationEl.textContent = data.education_text || '';
             educationEl.style.display = data.education_text ? 'block' : 'none';
         }
-        
+
         // "What I'm Waiting For" line for PREPARE signals
         const waitForEl = document.getElementById('signal-wait-for');
         if (waitForEl) {
@@ -3167,16 +3166,16 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 waitForEl.style.display = 'none';
             }
         }
-        
+
         // Update debug panel if visible
         this.updateDebugPanel(data);
-        
+
         const confidence = document.getElementById('signal-confidence');
         if (confidence) {
-            const tierClass = data.confidence_tier === 'high' ? 'bg-success fw-bold' : 
-                             data.confidence_tier === 'normal' ? 'bg-warning text-dark' : 'bg-secondary opacity-75';
-            const confValue = (data.confidence_pct != null && !isNaN(data.confidence_pct)) 
-                ? Math.round(data.confidence_pct) 
+            const tierClass = data.confidence_tier === 'high' ? 'bg-success fw-bold' :
+                data.confidence_tier === 'normal' ? 'bg-warning text-dark' : 'bg-secondary opacity-75';
+            const confValue = (data.confidence_pct != null && !isNaN(data.confidence_pct))
+                ? Math.round(data.confidence_pct)
                 : (data.strength || 50);
             let confHtml = `<span class="badge ${tierClass}">Confidence: ${confValue}%</span>`;
             confHtml += `<button class="btn btn-link btn-sm text-muted p-0 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#confidence-reasons" aria-expanded="false" title="Why this confidence?"><i class="bi bi-question-circle"></i> Why?</button>`;
@@ -3185,25 +3184,25 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
             confidence.innerHTML = confHtml;
         }
-        
+
         this.updateConfidenceFactors(data);
-        
+
         const reasonsContainer = document.getElementById('signal-reasons');
         const reasonsList = document.getElementById('reasons-list');
         if (reasonsContainer && reasonsList && data.reasons && data.reasons.length > 0) {
             reasonsContainer.style.display = 'block';
             reasonsList.innerHTML = data.reasons.map(r => {
-                const icon = r.includes('bullish') || r.includes('above') || r.includes('SPIKE') 
-                    ? '<i class="bi bi-check-circle-fill text-success"></i>' 
+                const icon = r.includes('bullish') || r.includes('above') || r.includes('SPIKE')
+                    ? '<i class="bi bi-check-circle-fill text-success"></i>'
                     : r.includes('bearish') || r.includes('below') || r.includes('overbought') || r.includes('Below')
-                    ? '<i class="bi bi-x-circle-fill text-danger"></i>'
-                    : '<i class="bi bi-dash-circle text-secondary"></i>';
+                        ? '<i class="bi bi-x-circle-fill text-danger"></i>'
+                        : '<i class="bi bi-dash-circle text-secondary"></i>';
                 return `<li>${icon} ${r}</li>`;
             }).join('');
         } else if (reasonsContainer) {
             reasonsContainer.style.display = 'none';
         }
-        
+
         if (data.main_signal === 'STRONG BUY' && this.lastSignal?.type !== 'STRONG BUY') {
             this.playStrongBuyAlert();
             this.logSignal(this.currentTicker, data.main_signal, data.current_price, data.strength, data.reasons);
@@ -3211,60 +3210,60 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.logSignal(this.currentTicker, data.main_signal, data.current_price, data.strength, data.reasons);
         }
     }
-    
+
     updateRecommendationPanels(data) {
         const actionPanel = document.getElementById('recommended-action-panel');
         const whyPanel = document.getElementById('why-this-trade-panel');
-        
+
         // Show panel for PREPARE signals too (bias forming)
         const showPanel = data.has_signal || data.main_signal === 'PREPARE';
-        
+
         if (showPanel) {
             if (actionPanel) {
                 actionPanel.style.display = 'block';
-                let borderColor = data.main_signal.includes('BUY') ? 'success' : 
-                                 data.main_signal.includes('SELL') ? 'danger' : 
-                                 data.main_signal === 'PREPARE' ? 'warning' : 'secondary';
-                let headerColor = data.main_signal.includes('BUY') ? 'bg-success' : 
-                                 data.main_signal.includes('SELL') ? 'bg-danger' : 
-                                 data.main_signal === 'PREPARE' ? 'bg-warning text-dark' : 'bg-secondary';
+                let borderColor = data.main_signal.includes('BUY') ? 'success' :
+                    data.main_signal.includes('SELL') ? 'danger' :
+                        data.main_signal === 'PREPARE' ? 'warning' : 'secondary';
+                let headerColor = data.main_signal.includes('BUY') ? 'bg-success' :
+                    data.main_signal.includes('SELL') ? 'bg-danger' :
+                        data.main_signal === 'PREPARE' ? 'bg-warning text-dark' : 'bg-secondary';
                 actionPanel.className = `card bg-dark mb-3 border-${borderColor}`;
                 const header = actionPanel.querySelector('.card-header');
                 if (header) header.className = `card-header ${headerColor} fw-bold`;
             }
-            
+
             const tradeRec = document.getElementById('trade-recommendation');
             if (tradeRec) {
-                let textColor = data.main_signal.includes('BUY') ? 'success' : 
-                               data.main_signal.includes('SELL') ? 'danger' : 
-                               data.main_signal === 'PREPARE' ? 'warning' : 'secondary';
+                let textColor = data.main_signal.includes('BUY') ? 'success' :
+                    data.main_signal.includes('SELL') ? 'danger' :
+                        data.main_signal === 'PREPARE' ? 'warning' : 'secondary';
                 let optionDisplay = data.option_type === '-' ? '' : data.option_type;
                 let displayText = data.main_signal === 'PREPARE' ? `PREPARE ${this.currentTicker} ${optionDisplay}` :
-                                 data.main_signal === 'WATCH' ? `WATCHING ${this.currentTicker}` :
-                                 `${data.main_signal} ${this.currentTicker} ${optionDisplay}`;
+                    data.main_signal === 'WATCH' ? `WATCHING ${this.currentTicker}` :
+                        `${data.main_signal} ${this.currentTicker} ${optionDisplay}`;
                 tradeRec.textContent = displayText.trim();
                 tradeRec.className = `h5 text-${textColor}`;
             }
-            
+
             const tradeReason = document.getElementById('trade-reason');
             if (tradeReason) tradeReason.textContent = data.summary;
-            
+
             // Entry Window display
             const entryWindowEl = document.getElementById('entry-window');
             if (entryWindowEl) {
                 entryWindowEl.textContent = data.entry_window || '';
             }
-            
+
             // Entry Type display
             const entryTypeEl = document.getElementById('entry-type');
             if (entryTypeEl) {
                 entryTypeEl.textContent = data.entry_type || '';
             }
-            
+
             document.getElementById('entry-price')?.textContent && (document.getElementById('entry-price').textContent = '$' + data.entry.toFixed(2));
             document.getElementById('target-price')?.textContent && (document.getElementById('target-price').textContent = '$' + data.target.toFixed(2));
             document.getElementById('stop-price')?.textContent && (document.getElementById('stop-price').textContent = '$' + data.stop.toFixed(2));
-            
+
             // Hard stop and stop guidance
             const hardStopEl = document.getElementById('hard-stop');
             if (hardStopEl) {
@@ -3279,15 +3278,15 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (maxLossRuleEl) {
                 maxLossRuleEl.textContent = data.max_loss_rule || '';
             }
-            
+
             const optionSuggestion = document.getElementById('option-suggestion');
             if (optionSuggestion) optionSuggestion.textContent = `${this.currentTicker} $${data.strike} ${data.option_type}`;
-            
+
             document.getElementById('suggested-strike')?.textContent && (document.getElementById('suggested-strike').textContent = '$' + data.strike);
             document.getElementById('suggested-expiry')?.textContent && (document.getElementById('suggested-expiry').textContent = data.expiry);
             document.getElementById('position-size')?.textContent && (document.getElementById('position-size').textContent = data.position_contracts + ' contracts');
             document.getElementById('max-risk')?.textContent && (document.getElementById('max-risk').textContent = '$' + data.max_risk.toFixed(0));
-            
+
             if (whyPanel) {
                 whyPanel.style.display = 'block';
                 const reasonsList = document.getElementById('trade-reasons-list');
@@ -3300,10 +3299,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (whyPanel) whyPanel.style.display = 'none';
         }
     }
-    
+
     updateIndicatorsSummary(indicators) {
         if (!indicators) return;
-        
+
         const rsiValue = document.getElementById('rsi-value');
         const rsiSignal = document.getElementById('rsi-signal');
         if (rsiValue && indicators.rsi) {
@@ -3314,7 +3313,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 rsiSignal.className = 'badge ' + rsiClass + ' small';
             }
         }
-        
+
         const macdValue = document.getElementById('macd-value');
         const macdSignal = document.getElementById('macd-signal');
         if (macdValue && indicators.macd) {
@@ -3326,7 +3325,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 macdSignal.className = 'badge ' + macdClass + ' small';
             }
         }
-        
+
         const bbPosition = document.getElementById('bb-position');
         const bbSignal = document.getElementById('bb-signal');
         if (bbPosition && indicators.bollinger) {
@@ -3336,7 +3335,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 bbSignal.className = 'badge bg-secondary small';
             }
         }
-        
+
         const volumeValue = document.getElementById('volume-value');
         const volumeSignal = document.getElementById('volume-signal');
         if (volumeValue && indicators.volume) {
@@ -3346,7 +3345,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 volumeSignal.className = 'badge ' + (indicators.volume.spike ? 'bg-warning' : 'bg-secondary') + ' small';
             }
         }
-        
+
         const vwapValue = document.getElementById('vwap-value');
         const vwapSignal = document.getElementById('vwap-signal');
         if (vwapValue && indicators.vwap) {
@@ -3356,7 +3355,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 vwapSignal.className = 'badge ' + (indicators.vwap.above_vwap ? 'bg-success' : 'bg-danger') + ' small';
             }
         }
-        
+
         const trendValue = document.getElementById('trend-value');
         const trendSignal = document.getElementById('trend-signal');
         if (trendValue && indicators.trend) {
@@ -3367,7 +3366,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 trendSignal.className = 'badge ' + (dir === 'BULLISH' ? 'bg-success' : dir === 'BEARISH' ? 'bg-danger' : 'bg-secondary') + ' small';
             }
         }
-        
+
         if (indicators.ema) {
             const price = this.lastPrice || 0;
             const formatEma = (val, label) => {
@@ -3376,14 +3375,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 const color = price > val ? '#22C55E' : price < val ? '#EF4444' : '#9CA3AF';
                 return `<span style="color:${color}">$${val.toFixed(2)}${arrow}</span>`;
             };
-            
+
             const el13 = document.getElementById('ema-13-value');
             const el48 = document.getElementById('ema-48-value');
             const el200 = document.getElementById('ema-200-value');
             if (el13) el13.innerHTML = formatEma(indicators.ema.ema_13);
             if (el48) el48.innerHTML = formatEma(indicators.ema.ema_48);
             if (el200) el200.innerHTML = formatEma(indicators.ema.ema_200);
-            
+
             const crossoverAlert = document.getElementById('ema-crossover-alert');
             if (crossoverAlert && indicators.ema.crossovers && indicators.ema.crossovers.length > 0) {
                 crossoverAlert.style.display = 'block';
@@ -3392,19 +3391,19 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 crossoverAlert.style.display = 'none';
             }
         }
-        
+
         let bullish = 0, bearish = 0;
         if (indicators.rsi?.value < 30) bullish++; else if (indicators.rsi?.value > 70) bearish++;
         if (indicators.macd?.signal_type?.includes('BULLISH')) bullish++; else if (indicators.macd?.signal_type?.includes('BEARISH')) bearish++;
         if (indicators.vwap?.above_vwap) bullish++; else bearish++;
         if (indicators.trend?.direction === 'BULLISH') bullish++; else if (indicators.trend?.direction === 'BEARISH') bearish++;
-        
+
         const indicatorsSummary = document.getElementById('indicators-summary');
         if (indicatorsSummary) {
             indicatorsSummary.textContent = `${bullish} Bullish / ${bearish} Bearish`;
             indicatorsSummary.className = 'badge ' + (bullish > bearish ? 'bg-success' : bearish > bullish ? 'bg-danger' : 'bg-warning');
         }
-        
+
         const stripPrice = document.getElementById('strip-price');
         const stripEma13 = document.getElementById('strip-ema13');
         const stripEma48 = document.getElementById('strip-ema48');
@@ -3418,7 +3417,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             stripRsi.innerHTML = `<span style="color:${rsiColor}">${rsiVal}</span>`;
         }
     }
-    
+
     updatePriceDisplay(data) {
         this.lastPrice = data.current_price;
         const currentPrice = document.getElementById('current-price');
@@ -3431,7 +3430,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
             currentPrice.innerHTML = '$' + data.current_price.toFixed(2) + sessionLabel;
         }
-        
+
         const priceChange = document.getElementById('price-change');
         if (priceChange) {
             const changeClass = data.change >= 0 ? 'text-success' : 'text-danger';
@@ -3443,14 +3442,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             priceChange.innerHTML = changeText;
         }
     }
-    
+
     updateKeyLevels(sr, currentPrice) {
         if (!sr) return;
-        
+
         document.getElementById('resistance-level')?.textContent && (document.getElementById('resistance-level').textContent = '$' + (sr.resistance || 0).toFixed(2));
         document.getElementById('support-level')?.textContent && (document.getElementById('support-level').textContent = '$' + (sr.support || 0).toFixed(2));
         document.getElementById('sr-current-price')?.textContent && (document.getElementById('sr-current-price').textContent = '$' + currentPrice.toFixed(2));
-        
+
         const positionBar = document.getElementById('price-position-bar');
         if (positionBar && sr.support && sr.resistance) {
             const range = sr.resistance - sr.support;
@@ -3458,29 +3457,29 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             positionBar.style.width = Math.max(0, Math.min(100, position)) + '%';
         }
     }
-    
+
     async loadChartData() {
         if (!this.chartCanvas) return;
         try {
             const cacheBuster = Date.now();
             const response = await fetch(`/api/market-data/${this.currentTicker}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
             const data = await response.json();
-            
+
             if (data.error) {
                 if (this.chart?.data?.datasets?.[0]) this.chart.data.datasets[0].data = [];
                 if (this.chart) this.chart.update('none');
                 return;
             }
-            
+
             const indicatorsRes = await fetch(`/api/indicators/${this.currentTicker}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
             const indicators = await indicatorsRes.json();
-            
+
             if (this.chartType === 'candle' || this.chartType === 'heiken') {
                 this.renderCandlestickChart(data, indicators);
             } else {
                 this.renderLineChart(data, indicators);
             }
-            
+
             if (data.volumes && data.closes && data.opens) {
                 this.updateVolumeChart(data.volumes, data.closes, data.opens);
             }
@@ -3490,68 +3489,68 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (this.chart) this.chart.update('none');
         }
     }
-    
+
     renderLineChart(data, indicators) {
         if (!this.chart || this.chart.config.type !== 'line') {
             this.createLineChart();
         }
-        
+
         const labels = data.timestamps?.map(t => {
             const d = new Date(t);
             return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
         }) || [];
-        
+
         this.chart.data.labels = labels;
         this.chart.data.datasets[0].data = data.closes || [];
-        
+
         if (indicators.ema) {
             const len = labels.length;
             this.chart.data.datasets[1].data = this.padArray(indicators.ema.ema_13_series || [], len);
             this.chart.data.datasets[2].data = this.padArray(indicators.ema.ema_48_series || [], len);
             this.chart.data.datasets[3].data = this.padArray(indicators.ema.ema_200_series || [], len);
-            
+
             this.chart.data.datasets[1].hidden = !this.indicatorToggles.ema13;
             this.chart.data.datasets[2].hidden = !this.indicatorToggles.ema48;
             this.chart.data.datasets[3].hidden = !this.indicatorToggles.ema200;
         }
-        
+
         const support = indicators.support_resistance?.support || (data.closes ? Math.min(...data.closes) * 0.998 : 0);
         const resistance = indicators.support_resistance?.resistance || (data.closes ? Math.max(...data.closes) * 1.002 : 0);
         this.chart.data.datasets[4].data = new Array(labels.length).fill(support);
         this.chart.data.datasets[5].data = new Array(labels.length).fill(resistance);
-        
+
         if (indicators.rsi?.series) {
             const rsiSeries = this.padArray(indicators.rsi.series, labels.length);
             this.chart.data.datasets[6].data = rsiSeries;
             this.chart.data.datasets[7].data = new Array(labels.length).fill(30);
             this.chart.data.datasets[8].data = new Array(labels.length).fill(70);
         }
-        
+
         this.chart.update('none');
     }
-    
+
     renderCandlestickChart(data, indicators) {
         const useCandlestick = typeof Chart.controllers?.candlestick !== 'undefined';
-        
+
         if (!useCandlestick) {
             this.renderOHLCBars(data, indicators);
             return;
         }
-        
+
         if (!this.chart || this.chart.config.type !== 'candlestick') {
             this.createCandlestickChart();
         }
-        
+
         const config = this.TIMEFRAME_CONFIG[this.currentInterval] || this.TIMEFRAME_CONFIG['5m'];
         const maxPoints = config.maxPoints;
-        
+
         const sliceStart = Math.max(0, data.timestamps.length - maxPoints);
         const timestamps = data.timestamps.slice(sliceStart);
         const opens = data.opens.slice(sliceStart);
         const highs = data.highs.slice(sliceStart);
         const lows = data.lows.slice(sliceStart);
         const closes = data.closes.slice(sliceStart);
-        
+
         let ohlcData;
         if (this.chartType === 'heiken' && indicators.heiken_ashi) {
             const ha = indicators.heiken_ashi;
@@ -3575,22 +3574,22 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 c: closes[i]
             }));
         }
-        
+
         this.chart.data.datasets[0].data = ohlcData;
         this.chart.data.datasets[0].barThickness = config.barThickness;
         this.chart.data.datasets[0].maxBarThickness = config.barThickness + 4;
-        
+
         if (this.chart.options.scales.x.time) {
             this.chart.options.scales.x.time.unit = config.timeUnit;
             this.chart.options.scales.x.time.stepSize = config.stepSize;
         }
-        
+
         if (indicators.ema) {
             const emaData = (series) => timestamps.map((t, i) => ({
                 x: new Date(t).getTime(),
                 y: series[i] || null
             }));
-            
+
             const ema13Sliced = (indicators.ema.ema_13_series || []).slice(sliceStart);
             const ema48Sliced = (indicators.ema.ema_48_series || []).slice(sliceStart);
             const ema200Sliced = (indicators.ema.ema_200_series || []).slice(sliceStart);
@@ -3598,14 +3597,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.chart.data.datasets[2].data = emaData(this.padArray(ema48Sliced, timestamps.length));
             this.chart.data.datasets[3].data = emaData(this.padArray(ema200Sliced, timestamps.length));
         }
-        
+
         this.chart.update('none');
     }
-    
+
     renderOHLCBars(data, indicators) {
         if (!this.chart || this.chart.config.type !== 'bar') {
             if (this.chart) this.chart.destroy();
-            
+
             this.chart = new Chart(this.chartCanvas.getContext('2d'), {
                 type: 'bar',
                 data: {
@@ -3628,12 +3627,12 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 }
             });
         }
-        
+
         const labels = data.timestamps?.map(t => {
             const d = new Date(t);
             return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
         }) || [];
-        
+
         let opens, highs, lows, closes;
         if (this.chartType === 'heiken' && indicators.heiken_ashi) {
             opens = indicators.heiken_ashi.opens;
@@ -3646,39 +3645,39 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             lows = data.lows;
             closes = data.closes;
         }
-        
+
         const barData = [];
         const bgColors = [];
         const bdColors = [];
-        
+
         for (let i = 0; i < closes.length; i++) {
             const bullish = closes[i] >= opens[i];
             barData.push([lows[i], highs[i]]);
             bgColors.push(bullish ? 'rgba(0, 230, 118, 0.7)' : 'rgba(255, 82, 82, 0.7)');
             bdColors.push(bullish ? '#00e676' : '#ff5252');
         }
-        
+
         this.chart.data.labels = labels;
         this.chart.data.datasets[0].data = barData;
         this.chart.data.datasets[0].backgroundColor = bgColors;
         this.chart.data.datasets[0].borderColor = bdColors;
-        
+
         if (indicators.ema) {
             const len = labels.length;
             this.chart.data.datasets[1].data = this.padArray(indicators.ema.ema_13_series || [], len);
             this.chart.data.datasets[2].data = this.padArray(indicators.ema.ema_48_series || [], len);
             this.chart.data.datasets[3].data = this.padArray(indicators.ema.ema_200_series || [], len);
         }
-        
+
         this.chart.update('none');
     }
-    
+
     padArray(arr, targetLen) {
         if (arr.length >= targetLen) return arr.slice(-targetLen);
         const padding = new Array(targetLen - arr.length).fill(null);
         return [...padding, ...arr];
     }
-    
+
     async loadAdvancedData() {
         try {
             const [analysisRes, vixRes, optionsRes] = await Promise.all([
@@ -3686,48 +3685,48 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 fetch('/api/vix'),
                 fetch(`/api/options-flow/${this.currentTicker}`)
             ]);
-            
+
             const analysis = await analysisRes.json();
             const vix = await vixRes.json();
             const options = await optionsRes.json();
-            
+
             this.updateMultiTimeframeDisplay(analysis);
             this.updateVixDisplay(vix);
             this.updateOptionsFlowDisplay(options);
             this.updateInstitutionalDisplay(analysis.institutional);
-            
+
         } catch (error) {
             console.error('Error loading advanced data:', error);
         }
     }
-    
+
     updateMultiTimeframeDisplay(data) {
         if (!data.timeframe_trends) return;
-        
+
         ['1m', '5m', '15m', '1h', '4h'].forEach(tf => {
             const el = document.getElementById(`tf-${tf}`);
             if (el) {
                 const trend = data.timeframe_trends[tf] || 'NEUTRAL';
                 el.textContent = trend;
                 el.className = 'badge ' + (trend === 'BULLISH' ? 'bg-success' : trend === 'BEARISH' ? 'bg-danger' : 'bg-warning');
-                
+
                 if (tf === this.currentInterval) {
                     el.classList.add('border', 'border-white');
                 }
             }
         });
-        
+
         const confluenceEl = document.getElementById('confluence-score');
         if (confluenceEl && data.confluence_score !== undefined) {
             confluenceEl.textContent = data.confluence_score.toFixed(1);
             confluenceEl.className = data.confluence_score > 0 ? 'fw-bold text-success' : data.confluence_score < 0 ? 'fw-bold text-danger' : 'fw-bold text-warning';
         }
     }
-    
+
     updateVixDisplay(vix) {
         document.getElementById('vix-value')?.textContent && (document.getElementById('vix-value').textContent = vix.current?.toFixed(2) || '--');
         document.getElementById('vix-trend')?.textContent && (document.getElementById('vix-trend').textContent = vix.trend || '--');
-        
+
         const vixBadge = document.getElementById('vix-regime-badge');
         if (vixBadge) {
             const regime = vix.regime || 'NORMAL';
@@ -3735,52 +3734,52 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             vixBadge.className = 'badge ms-2 ' + (regime === 'LOW' ? 'bg-success' : regime === 'HIGH' ? 'bg-danger' : 'bg-info');
         }
     }
-    
+
     updateOptionsFlowDisplay(options) {
         if (options.error) return;
-        
+
         document.getElementById('pc-ratio')?.textContent && (document.getElementById('pc-ratio').textContent = options.put_call_ratio?.toFixed(2) || '--');
         document.getElementById('total-call-vol')?.textContent && (document.getElementById('total-call-vol').textContent = this.formatNumber(options.total_call_volume || 0));
         document.getElementById('total-put-vol')?.textContent && (document.getElementById('total-put-vol').textContent = this.formatNumber(options.total_put_volume || 0));
-        
+
         const hotCalls = document.getElementById('hot-calls-badge');
         const unusualPuts = document.getElementById('unusual-puts-badge');
         const blockTrades = document.getElementById('block-trades-badge');
         const sweeps = document.getElementById('sweeps-badge');
-        
+
         if (hotCalls) hotCalls.style.display = options.indicators?.hot_calls ? 'inline-block' : 'none';
         if (unusualPuts) unusualPuts.style.display = options.indicators?.unusual_puts ? 'inline-block' : 'none';
         if (blockTrades) blockTrades.style.display = options.indicators?.block_trades ? 'inline-block' : 'none';
         if (sweeps) sweeps.style.display = options.indicators?.sweeps ? 'inline-block' : 'none';
     }
-    
+
     updateInstitutionalDisplay(institutional) {
         if (!institutional) return;
-        
+
         const activity = document.getElementById('institutional-activity');
         if (activity) {
             activity.textContent = institutional.activity_level || 'NORMAL';
             activity.className = 'h5 mb-0 ' + (institutional.activity_level === 'HIGH' ? 'text-warning' : 'text-secondary');
         }
-        
+
         document.getElementById('inst-buy-spikes')?.textContent && (document.getElementById('inst-buy-spikes').textContent = institutional.bullish_spikes || 0);
         document.getElementById('inst-sell-spikes')?.textContent && (document.getElementById('inst-sell-spikes').textContent = institutional.bearish_spikes || 0);
     }
-    
+
     addSignalToFeed(signal, prepend = true) {
         const feed = document.getElementById('signal-feed');
         if (!feed) return;
-        
+
         if (feed.querySelector('.text-muted.text-center')) feed.innerHTML = '';
-        
+
         const item = document.createElement('div');
         item.className = 'list-group-item bg-dark border-secondary py-2';
-        
-        const typeClass = signal.signal_type?.includes('BUY') ? 'text-success' : 
-                         signal.signal_type?.includes('SELL') ? 'text-danger' : 'text-warning';
-        
+
+        const typeClass = signal.signal_type?.includes('BUY') ? 'text-success' :
+            signal.signal_type?.includes('SELL') ? 'text-danger' : 'text-warning';
+
         const time = signal.timestamp ? new Date(signal.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--:--';
-        
+
         item.innerHTML = `
             <div class="d-flex justify-content-between align-items-center">
                 <div>
@@ -3791,7 +3790,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             </div>
             <div class="small text-light">$${(signal.price || 0).toFixed(2)} | ${signal.strength || 0}%</div>
         `;
-        
+
         if (prepend) {
             feed.prepend(item);
             while (feed.children.length > 10) feed.removeChild(feed.lastChild);
@@ -3799,20 +3798,20 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             feed.appendChild(item);
         }
     }
-    
+
     async addTicker() {
         const input = document.getElementById('new-ticker');
         if (!input) return;
-        
+
         const raw = input.value.trim();
         if (!raw) return;
-        
+
         const submitBtn = document.getElementById('add-ticker-submit');
         if (submitBtn) {
             submitBtn.disabled = true;
             submitBtn.textContent = 'Adding...';
         }
-        
+
         try {
             const res = await fetch('/api/tickers', {
                 method: 'POST',
@@ -3820,23 +3819,23 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 body: JSON.stringify({ symbol: raw })
             });
             const data = await res.json().catch(() => ({}));
-            
+
             if (!res.ok) {
                 const msg = data.error || 'Failed to add ticker';
                 this.showTickerToast(msg, 'danger');
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Add'; }
                 return;
             }
-            
+
             input.value = '';
-            
+
             const added = data.added || (data.symbol ? [data] : []);
             const errors = data.errors || [];
             added.forEach(t => { this.scannerTickerSelection[t.symbol] = true; });
             this.saveScannerSelection();
-            
+
             await this.loadTickers();
-            
+
             if (added.length) {
                 this.showTickerToast(`Added: ${added.map(t => t.symbol).join(', ')}. Loading data…`, 'success');
                 const firstSymbol = added[0].symbol || added[0];
@@ -3846,7 +3845,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 await this.refreshData();
             }
             if (errors.length) this.showTickerToast(errors.slice(0, 3).join('; '), 'warning');
-            
+
             const modal = bootstrap.Modal.getInstance(document.getElementById('addTickerModal'));
             if (modal) modal.hide();
         } catch (error) {
@@ -3856,7 +3855,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Add'; }
         }
     }
-    
+
     showTickerToast(message, type) {
         const id = 'ticker-toast-' + Date.now();
         const el = document.createElement('div');
@@ -3868,25 +3867,25 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         document.body.appendChild(el);
         setTimeout(() => { const e = document.getElementById(id); if (e) e.remove(); }, 5000);
     }
-    
+
     confirmRemoveTicker() {
         const select = document.getElementById('ticker-select');
         if (!select) return;
-        
+
         const tickerCount = select.options.length;
         if (tickerCount <= 1) {
             this.showRemoveError();
             return;
         }
-        
+
         const symbol = this.currentTicker;
         this.showRemoveConfirmation(symbol);
     }
-    
+
     showRemoveError() {
         const existingModal = document.getElementById('removeErrorModal');
         if (existingModal) existingModal.remove();
-        
+
         const modal = document.createElement('div');
         modal.id = 'removeErrorModal';
         modal.className = 'modal fade';
@@ -3911,11 +3910,11 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     }
-    
+
     showRemoveConfirmation(symbol) {
         const existingModal = document.getElementById('removeConfirmModal');
         if (existingModal) existingModal.remove();
-        
+
         const modal = document.createElement('div');
         modal.id = 'removeConfirmModal';
         modal.className = 'modal fade';
@@ -3937,36 +3936,36 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             </div>
         `;
         document.body.appendChild(modal);
-        
+
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
-        
+
         document.getElementById('confirm-remove-btn').addEventListener('click', async () => {
             bsModal.hide();
             await this.removeTicker(symbol);
         });
-        
+
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     }
-    
+
     async removeTicker(symbol) {
         try {
             await fetch(`/api/tickers/${symbol}`, { method: 'DELETE' });
-            
+
             this.clearTickerData(symbol);
-            
+
             delete this.scannerTickerSelection[symbol];
             this.saveScannerSelection();
-            
+
             await this.loadTickers();
-            
+
             this.refreshData();
-            
+
         } catch (error) {
             console.error('Error removing ticker:', error);
         }
     }
-    
+
     clearTickerData(symbol) {
         const feed = document.getElementById('signal-feed');
         if (feed) {
@@ -3978,7 +3977,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             });
         }
     }
-    
+
     async saveSettings() {
         this.indicatorToggles = {
             rsi: document.getElementById('toggle-rsi')?.checked ?? true,
@@ -3991,9 +3990,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             volume: document.getElementById('toggle-volume')?.checked ?? true,
             sr: document.getElementById('toggle-sr')?.checked ?? true
         };
-        
+
         localStorage.setItem('indicatorToggles', JSON.stringify(this.indicatorToggles));
-        
+
         const settings = {
             rsi_period: parseInt(document.getElementById('rsi-period')?.value) || 14,
             rsi_oversold: parseInt(document.getElementById('rsi-oversold')?.value) || 30,
@@ -4002,37 +4001,37 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             audio_enabled: document.getElementById('audio-notifications')?.checked ?? true,
             audio_volume: parseInt(document.getElementById('audio-volume')?.value) || 50
         };
-        
+
         try {
             await fetch('/api/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
             });
-            
+
             this.settings = settings;
             this.audioEnabled = settings.audio_enabled;
             this.audioVolume = settings.audio_volume / 100;
-            
+
             this.loadChartData();
-            
+
             const modal = bootstrap.Modal.getInstance(document.getElementById('settingsModal'));
             if (modal) modal.hide();
         } catch (error) {
             console.error('Error saving settings:', error);
         }
     }
-    
+
     updateIndicatorCount() {
         let count = 0;
         document.querySelectorAll('[id^="toggle-"]').forEach(toggle => {
             if (toggle.checked) count++;
         });
-        
+
         const countEl = document.getElementById('active-indicator-count');
         if (countEl) countEl.textContent = `Using ${count} of 10`;
     }
-    
+
     updateAudioToggle() {
         const toggle = document.getElementById('audio-toggle');
         if (toggle) {
@@ -4040,13 +4039,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             toggle.className = 'btn btn-sm ' + (this.audioEnabled ? 'btn-outline-success' : 'btn-outline-secondary');
         }
     }
-    
+
     playBuyAlert() {
         if (!this.audioContext) return;
-        
+
         const frequencies = [440, 523, 659];
         const duration = 0.15;
-        
+
         frequencies.forEach((freq, i) => {
             setTimeout(() => {
                 const osc = this.audioContext.createOscillator();
@@ -4062,13 +4061,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }, i * 120);
         });
     }
-    
+
     playSellAlert() {
         if (!this.audioContext) return;
-        
+
         const frequencies = [523, 349];
         const duration = 0.2;
-        
+
         frequencies.forEach((freq, i) => {
             setTimeout(() => {
                 const osc = this.audioContext.createOscillator();
@@ -4084,22 +4083,22 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }, i * 150);
         });
     }
-    
+
     playAlert(signalType) {
         if (signalType?.includes('BUY')) this.playBuyAlert();
         else if (signalType?.includes('SELL')) this.playSellAlert();
     }
-    
+
     async loadPaperAccount() {
         try {
             const response = await fetch('/api/paper-account');
             const data = await response.json();
-            
+
             const balance = document.getElementById('paper-balance');
             if (balance && data.balance !== undefined) {
                 balance.textContent = '$' + data.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             }
-            
+
             const positions = document.getElementById('paper-positions');
             if (positions && data.positions) {
                 if (data.positions.length === 0) {
@@ -4117,67 +4116,67 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             console.error('Error loading paper account:', error);
         }
     }
-    
+
     openPaperTrade(side) {
         this.paperTradeSide = side;
-        
+
         const title = document.getElementById('paper-trade-title');
         if (title) title.textContent = side === 'long' ? 'Buy (Long)' : 'Sell (Short)';
-        
+
         const symbol = document.getElementById('paper-symbol');
         if (symbol) symbol.value = this.currentTicker;
-        
+
         const execute = document.getElementById('paper-execute');
         if (execute) {
             execute.className = 'btn btn-sm ' + (side === 'long' ? 'btn-success' : 'btn-danger');
             execute.textContent = side === 'long' ? 'Buy' : 'Sell';
         }
-        
+
         const modal = new bootstrap.Modal(document.getElementById('paperTradeModal'));
         modal.show();
     }
-    
+
     async executePaperTrade() {
         const symbol = document.getElementById('paper-symbol')?.value;
         const quantity = parseInt(document.getElementById('paper-quantity')?.value) || 10;
-        
+
         try {
             await fetch('/api/paper-trade', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ symbol, side: this.paperTradeSide, quantity })
             });
-            
+
             const modal = bootstrap.Modal.getInstance(document.getElementById('paperTradeModal'));
             if (modal) modal.hide();
-            
+
             await this.loadPaperAccount();
         } catch (error) {
             console.error('Error executing paper trade:', error);
         }
     }
-    
+
     async scanTop10() {
         const selectedTickers = this.getSelectedScannerTickers();
-        
+
         if (selectedTickers.length === 0) {
             this.showScannerError();
             return;
         }
-        
+
         const btn = document.getElementById('scan-top-10-btn');
         const loading = document.getElementById('scanner-loading');
         const loadingText = document.getElementById('scanner-loading-text');
         const results = document.getElementById('scanner-results');
         const summary = document.getElementById('scanner-summary');
-        
+
         const filters = {
             bullish_only: document.getElementById('filter-bullish')?.checked || false,
             bearish_only: document.getElementById('filter-bearish')?.checked || false,
             min_score: document.getElementById('filter-high-score')?.checked ? 90 : 0,
             tickers: selectedTickers
         };
-        
+
         if (btn) btn.disabled = true;
         if (loading) loading.style.display = 'block';
         if (loadingText) {
@@ -4187,16 +4186,16 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         }
         if (results) results.innerHTML = '';
         if (summary) summary.style.display = 'none';
-        
+
         try {
             const response = await fetch('/api/scan-top-10', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(filters)
             });
-            
+
             const data = await response.json();
-            
+
             if (summary && data.summary) {
                 document.getElementById('summary-analyzed').textContent = `${data.summary.successful}/${data.summary.total_analyzed}`;
                 document.getElementById('summary-bullish').textContent = data.summary.bullish_setups;
@@ -4204,10 +4203,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 document.getElementById('summary-high-conf').textContent = data.summary.high_confidence;
                 summary.style.display = 'block';
             }
-            
+
             const advice = document.getElementById('session-advice');
             if (advice) advice.textContent = data.session_advice || '';
-            
+
             if (results) {
                 if (!data.results || data.results.length === 0) {
                     results.innerHTML = '<div class="text-center text-muted py-3">No stocks matched your filters</div>';
@@ -4215,7 +4214,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                     results.innerHTML = data.results.map(r => this.renderScanResult(r)).join('');
                 }
             }
-            
+
         } catch (error) {
             console.error('Scan error:', error);
             if (results) results.innerHTML = '<div class="text-center text-danger py-3">Error scanning markets</div>';
@@ -4224,11 +4223,11 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (loading) loading.style.display = 'none';
         }
     }
-    
+
     showScannerError() {
         const existingModal = document.getElementById('scannerErrorModal');
         if (existingModal) existingModal.remove();
-        
+
         const modal = document.createElement('div');
         modal.id = 'scannerErrorModal';
         modal.className = 'modal fade';
@@ -4253,13 +4252,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
     }
-    
+
     renderScanResult(result) {
         const direction = result.direction || 'NEUTRAL';
         const directionClass = direction === 'BULLISH' ? 'success' : direction === 'BEARISH' ? 'danger' : 'warning';
         const tradeScore = result.trade_score || 0;
         const reasons = result.reasons || [];
-        
+
         return `
             <div class="scanner-result border border-${directionClass} rounded p-2 mb-2">
                 <div class="d-flex justify-content-between align-items-center">
@@ -4273,7 +4272,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             </div>
         `;
     }
-    
+
     switchToTicker(symbol) {
         const select = document.getElementById('ticker-select');
         if (select) {
@@ -4290,13 +4289,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.refreshData();
         }
     }
-    
+
     formatNumber(num) {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
         return num.toString();
     }
-    
+
     initCheapOptionRadar() {
         const refreshBtn = document.getElementById('radar-refresh-btn');
         if (refreshBtn) {
@@ -4304,25 +4303,25 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         }
         this.scanCheapOptions();
     }
-    
+
     async scanCheapOptions() {
         const statusEl = document.getElementById('radar-status');
         const resultsEl = document.getElementById('radar-results');
         const refreshBtn = document.getElementById('radar-refresh-btn');
-        
+
         if (!resultsEl) return;
-        
+
         if (statusEl) statusEl.style.display = 'block';
         if (refreshBtn) refreshBtn.disabled = true;
         resultsEl.innerHTML = '<div class="text-center text-muted small py-2"><i class="bi bi-hourglass-split"></i> Scanning 50 liquid stocks...</div>';
-        
+
         try {
             const response = await fetch('/api/cheap-options?limit=10');
             const data = await response.json();
-            
+
             if (statusEl) statusEl.style.display = 'none';
             if (refreshBtn) refreshBtn.disabled = false;
-            
+
             if (data.candidates && data.candidates.length > 0) {
                 let html = '';
                 data.candidates.forEach((c, i) => {
@@ -4330,7 +4329,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                     const directionLabel = c.direction === 'CALLS' ? 'CALL' : c.direction === 'PUTS' ? 'PUT' : '—';
                     const changeSign = c.intraday_change >= 0 ? '+' : '';
                     const changeClass = c.intraday_change >= 0 ? 'success' : 'danger';
-                    
+
                     html += `
                         <div class="card bg-dark border-${directionClass} mb-2">
                             <div class="card-body py-2 px-3">

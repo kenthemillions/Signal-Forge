@@ -12,7 +12,7 @@ class StrategyOrchestrator:
     def __init__(self):
         self.eastern = pytz.timezone('US/Eastern')
         
-        # Define trading sessions
+        
         self.sessions = {
             'PRE_MARKET': (time(4, 0), time(9, 30)),
             'MARKET_OPEN': (time(9, 30), time(10, 30)),
@@ -25,7 +25,7 @@ class StrategyOrchestrator:
             'CLOSED': (time(20, 0), time(4, 0))
         }
         
-        # Strategy weights by session
+        
         self.session_weights = {
             'MARKET_OPEN': {'momentum': 1.5, 'volume': 1.5, 'reversal': 0.5},
             'MID_DAY': {'momentum': 0.8, 'volume': 0.8, 'reversal': 1.2},
@@ -53,17 +53,17 @@ class StrategyOrchestrator:
         current_time = now.time()
         session = self.get_current_session()
         
-        # Check if it's a weekend
+        
         is_weekend = now.weekday() >= 5
         
-        # Get session times
+        
         session_info = self.sessions.get(session, (time(0, 0), time(0, 0)))
         
-        # Calculate time until next session
+        
         next_session = self._get_next_session(session)
         time_until_next = self._time_until(session_info[1]) if session != 'CLOSED' else self._time_until(time(9, 30))
         
-        # Calculate countdown for key times
+        
         countdowns = {
             'market_open': self._time_until(time(9, 30)) if current_time < time(9, 30) else None,
             'market_close': self._time_until(time(16, 0)) if time(9, 30) <= current_time < time(16, 0) else None,
@@ -125,7 +125,7 @@ class StrategyOrchestrator:
         session = self.get_current_session()
         weights = self.session_weights.get(session, {'momentum': 1.0, 'volume': 1.0, 'reversal': 1.0})
         
-        # Extract indicator values
+        
         rsi = indicators.get('rsi', {})
         macd = indicators.get('macd', {})
         bollinger = indicators.get('bollinger', {})
@@ -133,11 +133,11 @@ class StrategyOrchestrator:
         sr = indicators.get('support_resistance', {})
         current_price = indicators.get('current_price', 0)
         
-        # Calculate individual scores (-2 to +2)
+        
         scores = []
         reasons = []
         
-        # RSI Score
+        
         rsi_value = rsi.get('value', 50)
         rsi_signal = rsi.get('signal', 'NEUTRAL')
         if rsi_signal == 'OVERSOLD':
@@ -153,7 +153,7 @@ class StrategyOrchestrator:
             scores.append(0.5)
             reasons.append(f"RSI strong ({rsi_value:.1f})")
         
-        # MACD Score
+        
         macd_signal = macd.get('signal_type', 'NEUTRAL')
         histogram = macd.get('histogram', 0)
         if macd_signal == 'BULLISH':
@@ -169,7 +169,7 @@ class StrategyOrchestrator:
             scores.append(-1 * weights.get('momentum', 1))
             reasons.append("MACD bearish crossover")
         
-        # Bollinger Bands Score
+        
         bb_signal = bollinger.get('signal', 'NEUTRAL')
         bb_position = bollinger.get('price_position', 'NEUTRAL')
         if bb_signal == 'OVERSOLD':
@@ -179,14 +179,14 @@ class StrategyOrchestrator:
             scores.append(-1.5 * weights.get('reversal', 1))
             reasons.append("Price at upper Bollinger Band")
         
-        # Volume Score
+        
         volume_spike = volume.get('spike', False)
         if volume_spike:
             spike_ratio = volume.get('spike_ratio', 1)
             scores.append(1 * weights.get('volume', 1))
             reasons.append(f"Volume spike ({spike_ratio:.1f}x avg)")
         
-        # Support/Resistance Score
+        
         near_support = sr.get('near_support', False)
         near_resistance = sr.get('near_resistance', False)
         if near_support:
@@ -196,7 +196,7 @@ class StrategyOrchestrator:
             scores.append(-1 * weights.get('reversal', 1))
             reasons.append(f"Near resistance (${sr.get('resistance', 0):.2f})")
         
-        # Real-time Price Momentum Score (premarket/afterhours - higher weight)
+        
         change_percent = market_data.get('change_percent', 0)
         premarket_boost = 2.0 if session in ['PRE_MARKET', 'AFTER_HOURS'] else 1.0
         if change_percent:
@@ -219,7 +219,7 @@ class StrategyOrchestrator:
                 scores.append(-1.5 * premarket_boost * weights.get('momentum', 1))
                 reasons.append(f"Mild downward momentum ({change_percent:.2f}%)")
         
-        # VWAP Score
+        
         vwap = indicators.get('vwap', {})
         vwap_signal = vwap.get('signal', 'NEUTRAL')
         vwap_value = vwap.get('value', 0)
@@ -238,12 +238,12 @@ class StrategyOrchestrator:
             scores.append(-1 * weights.get('reversal', 1))
             reasons.append(f"Extended above VWAP - potential pullback")
         
-        # Calculate total score
+        
         total_score = sum(scores) if scores else 0
         max_possible = len(scores) * 2 if scores else 1
         strength = min(100, max(0, (total_score / max_possible + 1) * 50)) if max_possible > 0 else 50
         
-        # Determine signal type
+        
         if total_score >= 3:
             signal_type = 'STRONG_BUY'
         elif total_score >= 1.5:
@@ -255,7 +255,7 @@ class StrategyOrchestrator:
         else:
             signal_type = 'NEUTRAL'
         
-        # Determine entry recommendation
+        
         if signal_type in ['STRONG_BUY', 'BUY']:
             entry_action = 'ENTER LONG'
             direction = 'BULLISH'
