@@ -22,6 +22,7 @@ from data_fetcher import MarketDataFetcher
 from options_analytics import options_analytics
 from config import Config
 from services.signal_service import signal_service
+from services.scalping_levels import get_scalping_levels
 from signal_engine.institutional import institutional_engine
 from signal_engine.seasonality import seasonality_analyzer
 from signal_engine.smart_coach import analyze_trade, ask_deepseek
@@ -2464,7 +2465,6 @@ def market_open_scan():
 from services.cheap_option_radar import cheap_option_radar
 from services.time_edge_analyzer import time_edge_analyzer
 from services.late_day_gatekeeper import late_day_gatekeeper
-from services.scalping_levels import get_scalping_levels
 
 @app.route('/api/cheap-options')
 def cheap_options_scan():

@@ -221,7 +221,7 @@ class TradingSignalsApp {
         this.startTimers();
         this.startLotteryHourTimer();
         this.initMarketOpenScanner();
-        this.refreshData();
+        this.refreshData().catch(err => console.warn('Initial data load:', err));
         this.loadPaperAccount();
         this.updateIndicatorCount();
         this.updatePerformanceDisplay();
@@ -1476,47 +1476,47 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
     
     async loadTickers() {
+        const select = document.getElementById('ticker-select');
+        if (!select) return;
+        const defaultSymbols = [{ symbol: 'SPY' }, { symbol: 'QQQ' }, { symbol: 'AAPL' }, { symbol: 'TSLA' }, { symbol: 'NVDA' }];
+        let tickers = [];
         try {
-            const response = await fetch('/api/tickers');
-            const tickers = await response.json();
-            const select = document.getElementById('ticker-select');
-            if (!select) return;
-            select.innerHTML = '';
-            
-            const savedSelection = localStorage.getItem('scannerTickerSelection');
-            let savedObj = {};
-            if (savedSelection) {
-                try {
-                    savedObj = JSON.parse(savedSelection);
-                } catch (e) {
-                    savedObj = {};
-                }
-            }
-            
-            this.scannerTickerSelection = {};
-            
-            tickers.forEach(ticker => {
-                const option = document.createElement('option');
-                option.value = ticker.symbol;
-                option.textContent = ticker.symbol;
-                select.appendChild(option);
-                this.tickerSelection[ticker.symbol] = true;
-                
-                this.scannerTickerSelection[ticker.symbol] = ticker.symbol in savedObj ? savedObj[ticker.symbol] : true;
-            });
-            
-            if (tickers.length > 0) {
-                this.currentTicker = tickers[0].symbol;
-                select.value = this.currentTicker;
-            }
-            
-            this.renderScannerTickerList(tickers);
-            this.renderBodyScannerGrid(tickers);
-            this.updateNavBadge();
-            this.updateAllScanCounts();
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 20000);
+            const response = await fetch('/api/tickers', { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!response.ok) throw new Error('Tickers API ' + response.status);
+            tickers = await response.json();
+            if (!Array.isArray(tickers) || tickers.length === 0) tickers = defaultSymbols;
         } catch (error) {
-            console.error('Error loading tickers:', error);
+            console.warn('Tickers load failed, using defaults:', error);
+            tickers = defaultSymbols;
         }
+        select.innerHTML = '';
+        const savedSelection = localStorage.getItem('scannerTickerSelection');
+        let savedObj = {};
+        if (savedSelection) {
+            try { savedObj = JSON.parse(savedSelection); } catch (e) { savedObj = {}; }
+        }
+        this.scannerTickerSelection = {};
+        tickers.forEach(ticker => {
+            const sym = ticker.symbol || ticker;
+            const option = document.createElement('option');
+            option.value = sym;
+            option.textContent = sym;
+            select.appendChild(option);
+            this.tickerSelection[sym] = true;
+            this.scannerTickerSelection[sym] = sym in savedObj ? savedObj[sym] : true;
+        });
+        if (tickers.length > 0) {
+            this.currentTicker = (tickers[0].symbol || tickers[0]);
+            if (!this.currentTicker) this.currentTicker = 'SPY';
+            select.value = this.currentTicker;
+        }
+        this.renderScannerTickerList(tickers);
+        this.renderBodyScannerGrid(tickers);
+        this.updateNavBadge();
+        this.updateAllScanCounts();
     }
     
     renderBodyScannerGrid(tickers) {
@@ -2380,31 +2380,30 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
     
     async updateMarketStatus() {
+        const badge = document.getElementById('market-status');
+        const textEl = document.getElementById('session-text');
         try {
             const response = await fetch('/api/market-status');
             const status = await response.json();
-            
-            const badge = document.getElementById('market-status');
+            if (!status || !status.current_session) throw new Error('No status');
             if (badge) {
                 badge.textContent = status.current_session.replace(/_/g, ' ');
                 badge.className = 'badge ' + (status.is_market_open ? 'bg-success' : 'bg-secondary');
             }
-            
             const sessionName = document.getElementById('session-name');
             if (sessionName) sessionName.textContent = status.current_session.replace(/_/g, ' ');
-            
             const sessionDesc = document.getElementById('session-description');
-            if (sessionDesc) sessionDesc.textContent = status.session_description;
-            
+            if (sessionDesc) sessionDesc.textContent = status.session_description || '';
             const closeCountdown = document.getElementById('close-countdown');
             if (closeCountdown) closeCountdown.textContent = status.countdowns?.market_close || '--:--:--';
-            
             const lotteryCountdown = document.getElementById('lottery-countdown');
             if (lotteryCountdown) lotteryCountdown.textContent = status.countdowns?.lottery_hour || '--:--:--';
-            
-            // Update the market session banner
             this.updateSessionBanner(status);
-        } catch (error) {}
+        } catch (error) {
+            if (badge) { badge.textContent = '—'; badge.className = 'badge bg-secondary'; }
+            if (textEl) textEl.textContent = 'Data loaded. Market status will update when server responds.';
+            this.updateSessionBanner(null);
+        }
     }
     
     updateSessionBanner(status) {
@@ -2417,7 +2416,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         
         if (!textEl) return;
         
-        const session = status.current_session;
+        const session = status?.current_session;
         let icon = '⏳';
         let text = 'Loading...';
         let badge = '';
@@ -2425,7 +2424,11 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         let checklist = '';
         let bannerBg = 'rgba(0,0,0,0.5)';
         
-        // Check if market is open using is_market_open flag (most reliable)
+        if (!status || session == null) {
+            icon = '📡';
+            text = 'Data loaded. Use Refresh or reload page for live market status.';
+            badge = '—';
+        } else {
         const isMarketOpen = status.is_market_open === true;
         
         if (session === 'PRE_MARKET') {
@@ -2456,6 +2459,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             badgeClass = 'bg-secondary';
             checklist = 'Market is closed. Signals will activate when trading resumes.';
             bannerBg = 'rgba(100, 100, 100, 0.15)';
+        }
         }
         
         if (iconEl) iconEl.textContent = icon;
@@ -2499,7 +2503,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 this.loadNewsData(),
                 this.loadOptionsFlowData(),
                 this.loadMultiTimeframeAnalysis(),
-                this.loadPremarketAnalysis()
+                this.loadPremarketAnalysis(),
+                this.loadScalpingLevels(),
+                this.updateMarketStatus()
             ]);
             
             this.updateWinRate();
@@ -2549,6 +2555,69 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             
         } catch (error) {
             console.error('Error loading multi-timeframe:', error);
+        }
+    }
+    
+    async loadScalpingLevels() {
+        const loadingEl = document.getElementById('scalping-loading');
+        const bestRangeEl = document.getElementById('scalping-best-range');
+        const atrRangeEl = document.getElementById('scalping-atr-range');
+        const fibLevelsEl = document.getElementById('scalping-fib-levels');
+        const timeframesEl = document.getElementById('scalping-timeframes');
+        if (!bestRangeEl && !fibLevelsEl) return;
+        try {
+            if (loadingEl) loadingEl.textContent = 'Loading Fib levels...';
+            const response = await fetch(`/api/scalping-levels/${this.currentTicker}?_t=${Date.now()}`);
+            const data = await response.json();
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (data.error) {
+                if (bestRangeEl) bestRangeEl.innerHTML = `<span class="text-warning small">${data.error}</span>`;
+                if (atrRangeEl) atrRangeEl.innerHTML = '';
+                if (fibLevelsEl) fibLevelsEl.innerHTML = '';
+                if (timeframesEl) timeframesEl.innerHTML = '';
+                return;
+            }
+            const best = data.best_retracement_range || {};
+            const timeframes = data.timeframes || {};
+            if (bestRangeEl) {
+                bestRangeEl.innerHTML = `
+                    <div class="fw-bold text-info small">Best retracement (${best.timeframe || '—'})</div>
+                    <div class="text-muted small">Zone: ${best.zone || '—'} · SH: $${best.swing_high ?? '—'} SL: $${best.swing_low ?? '—'}</div>
+                    <div class="small">Support: $${best.nearest_support ?? '—'} · Resistance: $${best.nearest_resistance ?? '—'}</div>
+                `;
+            }
+            if (atrRangeEl && (best.atr_move != null || best.range_low != null)) {
+                atrRangeEl.innerHTML = `
+                    <div class="text-muted small">ATR move: $${best.atr_move ?? '—'} (${best.atr_pct ?? '—'}%)</div>
+                    <div class="small">Range: $${best.range_low ?? '—'} – $${best.range_high ?? '—'}</div>
+                `;
+            } else if (atrRangeEl) atrRangeEl.innerHTML = '';
+            const levels = best.levels || {};
+            if (fibLevelsEl && Object.keys(levels).length) {
+                const parts = ['23.6', '38.2', '50', '61.8', '78.6'].filter(k => levels[k] != null).map(k => `${k}%: $${levels[k]}`);
+                fibLevelsEl.innerHTML = `<div class="text-muted small">Fib: ${parts.join(' · ')}</div>`;
+            } else if (fibLevelsEl) fibLevelsEl.innerHTML = '';
+            const tfOrder = ['1m', '2m', '5m', '15m', '1h', '4h'];
+            let tfHtml = '';
+            tfOrder.forEach(tf => {
+                const tfData = timeframes[tf];
+                if (!tfData || tfData.error) return;
+                const fib = tfData.fib || {};
+                const zone = fib.zone || '—';
+                const ret = fib.retracement_pct != null ? fib.retracement_pct + '%' : '—';
+                tfHtml += `<div class="d-flex justify-content-between small mb-1"><span>${tf}</span><span class="text-info">${zone} (${ret})</span></div>`;
+            });
+            if (timeframesEl) timeframesEl.innerHTML = tfHtml || '<span class="text-muted small">No timeframe data</span>';
+        } catch (error) {
+            console.error('Error loading scalping levels:', error);
+            if (loadingEl) {
+                loadingEl.style.display = '';
+                loadingEl.textContent = 'Select a ticker to load levels.';
+            }
+            if (bestRangeEl) bestRangeEl.innerHTML = '';
+            if (atrRangeEl) atrRangeEl.innerHTML = '';
+            if (fibLevelsEl) fibLevelsEl.innerHTML = '';
+            if (timeframesEl) timeframesEl.innerHTML = '';
         }
     }
     

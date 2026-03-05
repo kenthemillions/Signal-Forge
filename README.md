@@ -141,7 +141,7 @@ The app runs on port 5000 with Flask-SocketIO for real-time updates.
   - Optional DeepSeek AI integration when user provides their own API key
   - API key stored in browser localStorage only (not on server)
   - **Full indicator context**: RSI, MACD, Bollinger Bands, VWAP, EMA, Volume, Support/Resistance
-  - **Fibonacci retracement**: Calculates key levels (23.6%, 38.2%, 50%, 61.8%, 78.6%) for buy zones
+  - **Fibonacci retracement**: Calculates key levels (23.6%, 38.2%, 50%, 61.8%, 78.6%) for buy zones; Scalping Levels panel loads Fib + ATR in real time when a ticker is selected or data is refreshed
   - AI references specific price levels and indicator values in responses
 - **NEW: Institutional Mode** - multi-timeframe WAIT/PREPARE/BUY/SELL state machine
   - Market regime detection (TREND_UP/DOWN, RANGE, DISTRIBUTION)
