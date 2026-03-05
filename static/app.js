@@ -209,50 +209,46 @@ class TradingSignalsApp {
         if (bestTfEl) bestTfEl.textContent = hasEnoughData ? `${bestTf} - ${winRate}% win rate` : `${bestTf} - collecting data`;
     }
     
-    init() {
+    async init() {
         this.initAudioContext();
         this.initSocket();
         this.initChart();
-        this.loadTickers();
-        this.loadSettings();
-        this.loadSignals();
         this.bindEvents();
         this.bindKeyboardShortcuts();
         this.startTimers();
         this.startLotteryHourTimer();
         this.initMarketOpenScanner();
-        this.refreshData().catch(err => console.warn('Initial data load:', err));
         this.loadPaperAccount();
         this.updateIndicatorCount();
         this.updatePerformanceDisplay();
         this.playStartupSound();
-        
-        const enableAlertsBtn = document.getElementById('enable-alerts-btn');
-        if (enableAlertsBtn) {
-            enableAlertsBtn.addEventListener('click', () => this.enableTradingAlerts());
-        }
-        
-        // Debug toggle
-        const debugToggle = document.getElementById('debug-toggle');
-        if (debugToggle) {
-            debugToggle.addEventListener('click', () => this.toggleDebugMode());
-        const reversalDismiss = document.getElementById('trend-reversal-dismiss');
-        if (reversalDismiss) {
-            reversalDismiss.addEventListener('click', () => {
-                const banner = document.getElementById('trend-reversal-banner');
-                if (banner) banner.classList.add('d-none');
-            });
-        }
-        const lastHourRefresh = document.getElementById('last-hour-refresh');
-        if (lastHourRefresh) {
-            lastHourRefresh.addEventListener('click', () => this.loadLastHourScan());
-        }
-        }
+        this.initFeedbackForm();
         this.debugMode = false;
         
-        this.initFeedbackForm();
-        this.loadPremarketAnalysis();
+        const sessionText = document.getElementById('session-text');
+        if (sessionText) sessionText.textContent = 'Loading…';
+        
+        await this.loadTickers();
+        
+        this.loadSettings();
+        this.loadSignals();
+        
+        const enableAlertsBtn = document.getElementById('enable-alerts-btn');
+        if (enableAlertsBtn) enableAlertsBtn.addEventListener('click', () => this.enableTradingAlerts());
+        const debugToggle = document.getElementById('debug-toggle');
+        if (debugToggle) debugToggle.addEventListener('click', () => this.toggleDebugMode());
+        const reversalDismiss = document.getElementById('trend-reversal-dismiss');
+        if (reversalDismiss) reversalDismiss.addEventListener('click', () => {
+            const banner = document.getElementById('trend-reversal-banner');
+            if (banner) banner.classList.add('d-none');
+        });
+        const lastHourRefresh = document.getElementById('last-hour-refresh');
+        if (lastHourRefresh) lastHourRefresh.addEventListener('click', () => this.loadLastHourScan());
+        
+        setTimeout(() => this.clearLoadingState(), 3000);
         this.startLoadingTimeout();
+        
+        await this.refreshData();
     }
     
     startLoadingTimeout() {
@@ -2508,31 +2504,34 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const refreshText = document.getElementById('refresh-btn-text');
         const lastRefreshEl = document.getElementById('last-refresh-time');
         
-        if (refreshBtn) {
-            refreshBtn.disabled = true;
-            refreshBtn.classList.add('refreshing');
-        }
-        if (refreshText) {
-            refreshText.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Refreshing...';
-        }
+        if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.classList.add('refreshing'); }
+        if (refreshText) refreshText.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Refreshing...';
         
         this.loadLastHourScan();
-        const tasks = [
-            this.loadChartData(),
-            this.loadTradeRecommendation(),
-            this.loadEarningsData(),
-            this.loadNewsData(),
-            this.loadOptionsFlowData(),
-            this.loadMultiTimeframeAnalysis(),
-            this.loadPremarketAnalysis(),
-            this.loadScalpingLevels(),
-            this.updateMarketStatus()
-        ];
-        const results = await Promise.allSettled(tasks);
-        results.forEach((r, i) => { if (r.status === 'rejected') console.warn('Refresh task failed:', i, r.reason); });
         
-        this.updateWinRate();
-        if (this.advancedVisible) this.loadAdvancedData();
+        const critical = [
+            () => this.updateMarketStatus(),
+            () => this.loadTradeRecommendation(),
+            () => this.loadChartData()
+        ];
+        const secondary = [
+            () => this.loadPremarketAnalysis(),
+            () => this.loadScalpingLevels(),
+            () => this.loadEarningsData(),
+            () => this.loadNewsData(),
+            () => this.loadOptionsFlowData(),
+            () => this.loadMultiTimeframeAnalysis()
+        ];
+        
+        for (const fn of critical) {
+            try { await fn(); } catch (e) { console.warn('Refresh:', e); }
+        }
+        this.clearLoadingState();
+        
+        Promise.allSettled(secondary.map(fn => fn().catch(e => console.warn(e)))).then(() => {
+            this.updateWinRate();
+            if (this.advancedVisible) this.loadAdvancedData();
+        });
         
         const now = new Date();
         this.lastRefreshTimestamp = Date.now();
@@ -2540,20 +2539,15 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         if (lastRefreshEl) {
             lastRefreshEl.textContent = timeStr;
             lastRefreshEl.classList.add('flash-update');
-            lastRefreshEl.classList.remove('text-warning');
             setTimeout(() => lastRefreshEl.classList.remove('flash-update'), 500);
         }
-        
         this.showRefreshSuccess();
         this.clearLoadingState();
         
-        if (refreshBtn) {
-            refreshBtn.disabled = false;
-            refreshBtn.classList.remove('refreshing');
-        }
+        if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.classList.remove('refreshing'); }
         if (refreshText) {
-            const selected = Object.values(this.scannerTickerSelection).filter(v => v).length;
-            refreshText.innerHTML = `<i class="bi bi-arrow-clockwise"></i> Refresh Analysis (${selected})`;
+            const selected = Object.keys(this.scannerTickerSelection || {}).filter(k => this.scannerTickerSelection[k]).length;
+            refreshText.innerHTML = `<i class="bi bi-arrow-clockwise"></i> Refresh Analysis`;
         }
     }
     
@@ -3466,12 +3460,17 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
     
     async loadChartData() {
+        if (!this.chartCanvas) return;
         try {
             const cacheBuster = Date.now();
             const response = await fetch(`/api/market-data/${this.currentTicker}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
             const data = await response.json();
             
-            if (data.error || !this.chartCanvas) return;
+            if (data.error) {
+                if (this.chart?.data?.datasets?.[0]) this.chart.data.datasets[0].data = [];
+                if (this.chart) this.chart.update('none');
+                return;
+            }
             
             const indicatorsRes = await fetch(`/api/indicators/${this.currentTicker}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
             const indicators = await indicatorsRes.json();
@@ -3486,7 +3485,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 this.updateVolumeChart(data.volumes, data.closes, data.opens);
             }
         } catch (error) {
-            console.error('Error loading chart data:', error);
+            console.warn('Chart load:', error);
+            if (this.chart?.data?.datasets?.[0]) this.chart.data.datasets[0].data = [];
+            if (this.chart) this.chart.update('none');
         }
     }
     
