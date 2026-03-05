@@ -264,7 +264,7 @@ class TradingSignalsApp {
                 badge.textContent = '—';
                 badge.className = 'badge bg-secondary';
             }
-            if (textEl && textEl.textContent === 'Loading market status...') {
+            if (textEl && (textEl.textContent === 'Loading market status...' || textEl.textContent === 'Connecting…')) {
                 textEl.textContent = 'Server may be waking up. Click Refresh in a moment.';
                 const iconEl = document.getElementById('session-icon');
                 if (iconEl) iconEl.textContent = '📡';
@@ -273,7 +273,7 @@ class TradingSignalsApp {
                 premarketTrend.textContent = 'Refresh for data';
                 premarketTrend.className = 'h5 text-muted';
             }
-        }, 22000);
+        }, 8000);
     }
     
     async loadPremarketAnalysis() {
@@ -2516,49 +2516,63 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             refreshText.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Refreshing...';
         }
         
-        try {
-            this.loadLastHourScan();
-            await Promise.all([
-                this.loadChartData(),
-                this.loadTradeRecommendation(),
-                this.loadEarningsData(),
-                this.loadNewsData(),
-                this.loadOptionsFlowData(),
-                this.loadMultiTimeframeAnalysis(),
-                this.loadPremarketAnalysis(),
-                this.loadScalpingLevels(),
-                this.updateMarketStatus()
-            ]);
-            
-            this.updateWinRate();
-            if (this.advancedVisible) this.loadAdvancedData();
-            
-            const now = new Date();
-            this.lastRefreshTimestamp = Date.now();
-            const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            if (lastRefreshEl) {
-                lastRefreshEl.textContent = timeStr;
-                lastRefreshEl.classList.add('flash-update');
-                lastRefreshEl.classList.remove('text-warning');
-                setTimeout(() => lastRefreshEl.classList.remove('flash-update'), 500);
-            }
-            
-            this.showRefreshSuccess();
-            
-        } catch (error) {
-            console.error('Refresh error:', error);
-            this.updateSessionBanner(null);
-            const badge = document.getElementById('market-status');
-            if (badge) { badge.textContent = '—'; badge.className = 'badge bg-secondary'; }
-        } finally {
-            if (refreshBtn) {
-                refreshBtn.disabled = false;
-                refreshBtn.classList.remove('refreshing');
-            }
-            if (refreshText) {
-                const selected = Object.values(this.scannerTickerSelection).filter(v => v).length;
-                refreshText.innerHTML = `<i class="bi bi-arrow-clockwise"></i> Refresh Analysis (${selected})`;
-            }
+        this.loadLastHourScan();
+        const tasks = [
+            this.loadChartData(),
+            this.loadTradeRecommendation(),
+            this.loadEarningsData(),
+            this.loadNewsData(),
+            this.loadOptionsFlowData(),
+            this.loadMultiTimeframeAnalysis(),
+            this.loadPremarketAnalysis(),
+            this.loadScalpingLevels(),
+            this.updateMarketStatus()
+        ];
+        const results = await Promise.allSettled(tasks);
+        results.forEach((r, i) => { if (r.status === 'rejected') console.warn('Refresh task failed:', i, r.reason); });
+        
+        this.updateWinRate();
+        if (this.advancedVisible) this.loadAdvancedData();
+        
+        const now = new Date();
+        this.lastRefreshTimestamp = Date.now();
+        const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        if (lastRefreshEl) {
+            lastRefreshEl.textContent = timeStr;
+            lastRefreshEl.classList.add('flash-update');
+            lastRefreshEl.classList.remove('text-warning');
+            setTimeout(() => lastRefreshEl.classList.remove('flash-update'), 500);
+        }
+        
+        this.showRefreshSuccess();
+        this.clearLoadingState();
+        
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove('refreshing');
+        }
+        if (refreshText) {
+            const selected = Object.values(this.scannerTickerSelection).filter(v => v).length;
+            refreshText.innerHTML = `<i class="bi bi-arrow-clockwise"></i> Refresh Analysis (${selected})`;
+        }
+    }
+    
+    clearLoadingState() {
+        const badge = document.getElementById('market-status');
+        const textEl = document.getElementById('session-text');
+        const premarketTrend = document.getElementById('premarket-trend');
+        if (badge && (badge.textContent === 'Loading...' || badge.textContent === 'Refreshing...')) {
+            badge.textContent = '—';
+            badge.className = 'badge bg-secondary';
+        }
+        if (textEl && textEl.textContent === 'Loading market status...') {
+            textEl.textContent = 'Data loaded. Click Refresh for live status.';
+            const iconEl = document.getElementById('session-icon');
+            if (iconEl) iconEl.textContent = '📡';
+        }
+        if (premarketTrend && premarketTrend.textContent.trim() === 'Loading...') {
+            premarketTrend.textContent = '—';
+            premarketTrend.className = 'h5 text-muted';
         }
     }
     
@@ -4349,5 +4363,6 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
 
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new TradingSignalsApp();
+    window.tradingApp = window.app;
     window.app.initCheapOptionRadar();
 });

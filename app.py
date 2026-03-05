@@ -487,8 +487,12 @@ def ask_coach_endpoint():
 
 @app.route('/api/tickers')
 def get_tickers():
-    tickers = Ticker.query.filter_by(is_active=True).all()
-    return jsonify([t.to_dict() for t in tickers])
+    try:
+        tickers = Ticker.query.filter_by(is_active=True).all()
+        return jsonify([t.to_dict() for t in tickers])
+    except Exception as e:
+        logger.warning('Tickers fetch failed: %s', e)
+        return jsonify([{'symbol': s} for s in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA']])
 
 @app.route('/api/tickers', methods=['POST'])
 def add_ticker():
@@ -647,7 +651,16 @@ def get_performance_stats():
 
 @app.route('/api/market-status')
 def get_market_status():
-    return jsonify(strategy_orchestrator.get_market_status())
+    try:
+        return jsonify(strategy_orchestrator.get_market_status())
+    except Exception as e:
+        logger.warning('Market status failed: %s', e)
+        return jsonify({
+            'current_session': 'UNKNOWN',
+            'session_description': 'Status unavailable',
+            'is_market_open': False,
+            'countdowns': {'market_close': '--:--:--', 'lottery_hour': '--:--:--'}
+        }), 200
 
 @app.route('/api/quick-analysis/<symbol>')
 def quick_analysis(symbol):
