@@ -24,6 +24,7 @@ class Config:
     YFINANCE_ENABLED = True
     POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY')
     ALPHA_VANTAGE_KEY = os.environ.get('ALPHA_VANTAGE_KEY')
+    DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', 'YOUR_DEEPSEEK_API_KEY_HERE')
     
     CACHE_TYPE = os.environ.get('CACHE_TYPE', 'simple')
     CACHE_DEFAULT_TIMEOUT = int(os.environ.get('CACHE_TIMEOUT', 60))

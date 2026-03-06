@@ -47,33 +47,45 @@ class StrategyOrchestrator:
         
         return 'CLOSED'
     
+    def _time_until_next_market_open(self) -> str:
+        """Calculate time until next market open, skipping weekends"""
+        now = datetime.now(self.eastern)
+        target = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        while target.weekday() >= 5:
+            target += timedelta(days=1)
+        diff = target - now
+        hours, remainder = divmod(int(diff.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
     def get_market_status(self) -> Dict:
         """Get current market status and session info"""
         now = datetime.now(self.eastern)
         current_time = now.time()
         session = self.get_current_session()
-        
-        
+
         is_weekend = now.weekday() >= 5
-        
-        
+        if is_weekend:
+            session = 'CLOSED'
+
         session_info = self.sessions.get(session, (time(0, 0), time(0, 0)))
-        
-        
+
         next_session = self._get_next_session(session)
-        time_until_next = self._time_until(session_info[1]) if session != 'CLOSED' else self._time_until(time(9, 30))
-        
-        
+        time_until_next = self._time_until(session_info[1]) if session != 'CLOSED' else self._time_until_next_market_open()
+
+        market_is_open = time(9, 30) <= current_time < time(16, 0) and not is_weekend
         countdowns = {
-            'market_open': self._time_until(time(9, 30)) if current_time < time(9, 30) else None,
-            'market_close': self._time_until(time(16, 0)) if time(9, 30) <= current_time < time(16, 0) else None,
-            'lottery_hour': self._time_until(time(15, 55)) if time(9, 30) <= current_time < time(15, 55) else None,
+            'market_open': self._time_until_next_market_open() if not market_is_open else None,
+            'market_close': self._time_until(time(16, 0)) if market_is_open else None,
+            'lottery_hour': self._time_until(time(15, 55)) if time(9, 30) <= current_time < time(15, 55) and not is_weekend else None,
             'session_end': self._time_until(session_info[1]) if session not in ['CLOSED', 'AFTER_HOURS'] else None
         }
-        
+
         return {
             'current_session': session,
-            'is_market_open': session not in ['PRE_MARKET', 'AFTER_HOURS', 'CLOSED'],
+            'is_market_open': market_is_open,
             'is_weekend': is_weekend,
             'current_time': now.strftime('%H:%M:%S ET'),
             'next_session': next_session,

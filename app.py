@@ -45,6 +45,8 @@ data_fetcher = MarketDataFetcher()
 indicator_engine = IndicatorEngine()
 strategy_orchestrator = StrategyOrchestrator()
 
+_cheap_options_cache = {'data': None, 'timestamp': None}
+
 
 with app.app_context():
     db.create_all()
@@ -116,6 +118,18 @@ def background_price_updater():
         except Exception as e:
             logger.debug('Background price updater: %s', e)
         eventlet.sleep(15)
+
+def background_cheap_options_scanner():
+    while True:
+        try:
+            from services.cheap_option_radar import cheap_option_radar as _radar
+            result = _radar.scan(limit=10)
+            _cheap_options_cache['data'] = result
+            _cheap_options_cache['timestamp'] = datetime.now().isoformat()
+            logger.info("Cheap options cache refreshed")
+        except Exception as e:
+            logger.debug('Background cheap options scanner: %s', e)
+        eventlet.sleep(300)
 
 @app.route('/health')
 def health_check():
@@ -411,7 +425,9 @@ def ask_coach_endpoint():
         question = data.get('question', '')
         symbol = data.get('symbol', 'SPY').upper()
         use_ai = data.get('use_ai', False)
-        api_key = data.get('api_key', '')
+        api_key = data.get('api_key', '') or Config.DEEPSEEK_API_KEY
+        if api_key:
+            use_ai = True
         
         ticker = yf.Ticker(symbol)
         df = ticker.history(period='5d', interval='5m')
@@ -483,6 +499,10 @@ def ask_coach_endpoint():
             'error': str(e),
             'mode': 'error'
         }), 500
+
+@app.route('/api/coach/status')
+def coach_status():
+    return jsonify({'server_ai_available': bool(Config.DEEPSEEK_API_KEY)})
 
 @app.route('/api/tickers')
 def get_tickers():
@@ -1818,6 +1838,7 @@ def get_premarket_analysis(symbol):
     """Get premarket trend analysis before market open"""
     try:
         symbol = symbol.upper()
+        data_fetcher.clear_cache(symbol)
         data = data_fetcher.get_stock_data(symbol)
         
         if 'error' in data:
@@ -2458,20 +2479,20 @@ def market_open_scan():
 
 
 
-from services.cheap_option_radar import cheap_option_radar
 from services.time_edge_analyzer import time_edge_analyzer
 from services.late_day_gatekeeper import late_day_gatekeeper
 
 @app.route('/api/cheap-options')
 def cheap_options_scan():
-    """Cheap Option Radar - Find high-potential cheap options"""
-    try:
-        limit = request.args.get('limit', 10, type=int)
-        result = cheap_option_radar.scan(limit=limit)
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Cheap options scan error: {e}")
-        return jsonify({'candidates': [], 'error': str(e)}), 500
+    """Cheap Option Radar - serve from background cache"""
+    if _cheap_options_cache['data']:
+        return jsonify(_cheap_options_cache['data'])
+    return jsonify({
+        'candidates': [],
+        'pending': True,
+        'message': 'Initial scan in progress, please try again in 30 seconds',
+        'timestamp': datetime.now().isoformat()
+    }), 202
 
 @app.route('/api/time-edge/<symbol>')
 def time_edge_analysis(symbol):
@@ -2640,6 +2661,7 @@ def background_updates():
 
 socketio.start_background_task(background_updates)
 socketio.start_background_task(background_price_updater)
+socketio.start_background_task(background_cheap_options_scanner)
 
 if __name__ == '__main__':
     print("🚀 Signal Forge starting on http://localhost:5000")

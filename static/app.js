@@ -2920,6 +2920,15 @@ class TradingSignalsApp {
 
     this.updateMotivationalQuote();
     setInterval(() => this.updateMotivationalQuote(), 60000);
+
+    setInterval(() => this.scanCheapOptions(), 300000);
+
+    setInterval(() => {
+      const et = this.getEasternTime ? this.getEasternTime() : new Date();
+      const h = et.getHours(), m = et.getMinutes();
+      const isMarketHours = (h === 9 && m >= 30) || (h >= 10 && h < 16);
+      if (isMarketHours) this.scanTop10();
+    }, 60000);
   }
 
   startDynamicRefresh() {
@@ -3010,13 +3019,25 @@ class TradingSignalsApp {
       if (sessionDesc)
         sessionDesc.textContent = status.session_description || "";
       const closeCountdown = document.getElementById("close-countdown");
-      if (closeCountdown)
-        closeCountdown.textContent =
-          status.countdowns?.market_close || "--:--:--";
+      const closeLabel = document.getElementById("close-countdown-label");
       const lotteryCountdown = document.getElementById("lottery-countdown");
-      if (lotteryCountdown)
-        lotteryCountdown.textContent =
-          status.countdowns?.lottery_hour || "--:--:--";
+      const lotteryLabel = document.getElementById("lottery-countdown-label");
+
+      if (status.is_market_open) {
+        if (closeLabel) closeLabel.textContent = "Market Close";
+        if (closeCountdown) closeCountdown.textContent = status.countdowns?.market_close || "--:--:--";
+        if (lotteryLabel) lotteryLabel.textContent = "Lottery Hour";
+        if (lotteryCountdown) lotteryCountdown.textContent = status.countdowns?.lottery_hour || "--:--:--";
+      } else {
+        if (closeLabel) closeLabel.textContent = "Opens In";
+        if (closeCountdown) closeCountdown.textContent = status.countdowns?.market_open || "--:--:--";
+        if (lotteryLabel) lotteryLabel.textContent = status.is_weekend ? "Weekend" : "Pre-Market";
+        if (lotteryCountdown) {
+          const sess = status.current_session || "";
+          lotteryCountdown.textContent = sess.replace(/_/g, " ");
+          lotteryCountdown.className = "h5 text-secondary mb-0";
+        }
+      }
       this.updateSessionBanner(status);
     } catch (error) {
       if (badge) {
@@ -5436,6 +5457,15 @@ class TradingSignalsApp {
 
       if (statusEl) statusEl.style.display = "none";
       if (refreshBtn) refreshBtn.disabled = false;
+
+      if (response.status === 202 || data.pending) {
+        resultsEl.innerHTML = `
+          <div class="text-center text-warning small py-3">
+            <i class="bi bi-hourglass-split"></i> ${data.message || "Scan in progress, retrying..."}
+          </div>`;
+        setTimeout(() => this.scanCheapOptions(), 30000);
+        return;
+      }
 
       if (data.candidates && data.candidates.length > 0) {
         let html = "";

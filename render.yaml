@@ -1,7 +1,3 @@
-# Render.com – one-click deploy with database
-# Push to GitHub, then: Render Dashboard → New → Blueprint → connect repo (or New → Web Service and add Postgres manually).
-# Set SESSION_SECRET in the web service Environment tab (required for login to persist).
-
 databases:
   - name: signalforge-db
     plan: free
@@ -20,3 +16,5 @@ services:
         fromDatabase:
           name: signalforge-db
           property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
