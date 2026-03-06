@@ -96,7 +96,9 @@ with app.app_context():
         db.session.commit()
 
 def background_price_updater():
-    """Background task to push real-time price updates to connected clients."""
+    """Background task to push real-time price updates to connected clients.
+    Runs as fast as the data source allows — the in-memory cache in data_fetcher
+    (3s regular / 1s extended) is the only throttle. No artificial outer sleep."""
     while True:
         try:
             with app.app_context():
@@ -115,10 +117,10 @@ def background_price_updater():
                             })
                     except Exception as e:
                         logger.debug('Price update failed for %s: %s', ticker.symbol, e)
-                    eventlet.sleep(0.5)
+                    eventlet.sleep(0.1)  # minimal yield to keep eventlet scheduler happy
         except Exception as e:
             logger.debug('Background price updater: %s', e)
-        eventlet.sleep(5)
+            eventlet.sleep(1)  # brief pause only on error, then retry
 
 def background_cheap_options_scanner():
     while True:
