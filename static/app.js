@@ -1526,16 +1526,60 @@ class TradingSignalsApp {
 
     this.socket.on("price_update", (data) => {
       if (data.symbol === this.currentTicker) {
-        const priceEl = document.getElementById("current-price");
-        const changeEl = document.getElementById("price-change");
-        if (priceEl) priceEl.textContent = `$${data.price.toFixed(2)}`;
-        if (changeEl) {
-          const sign = data.change >= 0 ? "+" : "";
-          changeEl.textContent = `${sign}${data.change.toFixed(2)} (${sign}${data.change_percent.toFixed(2)}%)`;
-          changeEl.className =
-            data.change >= 0 ? "text-success" : "text-danger";
+        const price = data.price;
+        const change = data.change;
+        const changePct = data.change_percent;
+        const session = data.session || "regular";
+        const sign = change >= 0 ? "+" : "";
+        const changeClass = change >= 0 ? "text-success" : "text-danger";
+
+        // Build session badge for delayed sessions
+        let sessionLabel = "";
+        if (session === "afterhours") {
+          sessionLabel = '<span class="badge bg-secondary ms-2" style="font-size:0.5em;" title="After-hours data may be delayed 10-20 min">AH DELAYED</span>';
+        } else if (session === "premarket") {
+          sessionLabel = '<span class="badge bg-secondary ms-2" style="font-size:0.5em;" title="Pre-market data may be delayed 10-20 min">PM DELAYED</span>';
         }
-        this.lastPrice = data.price;
+
+        // 1. Main price header
+        const priceEl = document.getElementById("current-price");
+        if (priceEl) priceEl.innerHTML = `$${price.toFixed(2)}${sessionLabel}`;
+
+        // 2. Main price change
+        const changeEl = document.getElementById("price-change");
+        if (changeEl) {
+          let changeText = `<span class="${changeClass}">${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)</span>`;
+          if (session === "afterhours" || session === "premarket") {
+            changeText += `<small class="text-muted ms-1">vs prev close</small>`;
+          }
+          changeEl.innerHTML = changeText;
+        }
+
+        // 3. Support/Resistance bar section price — kept in sync with WebSocket
+        const srPriceEl = document.getElementById("sr-current-price");
+        if (srPriceEl) srPriceEl.textContent = `$${price.toFixed(2)}`;
+
+        // 4. Price position bar — recalculate using cached support/resistance
+        if (this.lastSupport && this.lastResistance) {
+          const positionBar = document.getElementById("price-position-bar");
+          if (positionBar) {
+            const range = this.lastResistance - this.lastSupport;
+            const position = range > 0 ? ((price - this.lastSupport) / range) * 100 : 50;
+            positionBar.style.width = Math.max(0, Math.min(100, position)) + "%";
+          }
+        }
+
+        // 5. Premarket/afterhours price display — keep in sync
+        const premarketPriceEl = document.getElementById("premarket-price");
+        if (premarketPriceEl) premarketPriceEl.textContent = `$${price.toFixed(2)}`;
+        const premarketChangeEl = document.getElementById("premarket-change");
+        if (premarketChangeEl) {
+          premarketChangeEl.textContent = `${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`;
+          premarketChangeEl.className = `fw-bold ${changeClass}`;
+        }
+
+        this.lastPrice = price;
+        this.lastRefreshTimestamp = Date.now();
       }
     });
 
@@ -1548,6 +1592,19 @@ class TradingSignalsApp {
           this.playAlert(signal.signal_type);
           this.lastSignal = { type: signal.signal_type, time: Date.now() };
         }
+      }
+    });
+
+    // Handle background signal_update — refresh charts and indicators when server pushes new analysis
+    this.socket.on("signal_update", (data) => {
+      if (data.symbol === this.currentTicker && data.data && data.signal) {
+        this.updatePriceDisplay(data.data);
+        if (data.indicators) this.updateIndicatorsSummary(data.indicators);
+        if (data.signal) {
+          this.updateTrafficLight(data.signal.main_signal || data.signal.signal_type);
+          this.updateMainSignalPanel(data.signal);
+        }
+        this.lastRefreshTimestamp = Date.now();
       }
     });
   }
@@ -2941,13 +2998,12 @@ class TradingSignalsApp {
       });
       const hourNum = parseInt(hour);
 
-      // Increase interval to make UI smoother/faster and less resource intensive
-      // Regular market hours (9:30-16:00 ET): 30 second refresh
-      // Extended hours: 60 second refresh
+      // Regular market hours (9:30-16:00 ET): 15 second refresh
+      // Extended hours: 30 second refresh
       if (hourNum >= 10 && hourNum < 16) {
-        return 30000;
+        return 15000;
       } else {
-        return 60000;
+        return 30000;
       }
     };
 
@@ -4336,6 +4392,10 @@ class TradingSignalsApp {
 
   updateKeyLevels(sr, currentPrice) {
     if (!sr) return;
+
+    // Cache support/resistance so WebSocket price_update can keep the bar in sync
+    if (sr.support) this.lastSupport = sr.support;
+    if (sr.resistance) this.lastResistance = sr.resistance;
 
     document.getElementById("resistance-level")?.textContent &&
       (document.getElementById("resistance-level").textContent =

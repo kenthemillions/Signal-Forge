@@ -103,21 +103,22 @@ def background_price_updater():
                 tickers = Ticker.query.filter_by(is_active=True).all()
                 for ticker in tickers:
                     try:
-                        data = data_fetcher.get_stock_data(ticker.symbol, period='1d', interval='5m')
+                        data = data_fetcher.get_stock_data(ticker.symbol, period='1d', interval='1m')
                         if data and 'error' not in data and 'current_price' in data:
                             socketio.emit('price_update', {
                                 'symbol': ticker.symbol,
                                 'price': data.get('current_price', 0),
                                 'change': data.get('change', 0),
                                 'change_percent': data.get('change_percent', 0),
+                                'session': data.get('session', 'regular'),
                                 'timestamp': datetime.now().isoformat()
                             })
                     except Exception as e:
                         logger.debug('Price update failed for %s: %s', ticker.symbol, e)
-                    eventlet.sleep(1)
+                    eventlet.sleep(0.5)
         except Exception as e:
             logger.debug('Background price updater: %s', e)
-        eventlet.sleep(15)
+        eventlet.sleep(5)
 
 def background_cheap_options_scanner():
     while True:
@@ -2635,7 +2636,7 @@ def handle_update_request(data):
 
 def background_updates():
     while True:
-        socketio.sleep(30)
+        socketio.sleep(15)
         with app.app_context():
             tickers = Ticker.query.filter_by(is_active=True).all()
             settings = UserSettings.query.first()

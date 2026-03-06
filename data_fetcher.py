@@ -22,7 +22,7 @@ class MarketDataFetcher:
         self._pc_ratio_history = {}  
         self._info_cache = {}
         self._info_cache_expiry = {}
-        self.info_cache_duration = 30 
+        self.info_cache_duration = 10 
     
     def _get_cache_duration(self) -> int:
         """Return appropriate cache duration based on market session"""
