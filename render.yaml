@@ -1,6 +1,6 @@
 databases:
   - name: signalforge-db
-    plan: standard
+    plan: basic-256mb
 
 services:
   - type: web
