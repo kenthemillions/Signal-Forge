@@ -228,7 +228,21 @@ class TradingSignalsApp {
         const sessionText = document.getElementById('session-text');
         if (sessionText) sessionText.textContent = 'Loading…';
         
-        await this.loadTickers();
+        try {
+            await this.loadTickers();
+        } catch (e) {
+            console.error('loadTickers failed:', e);
+            const sel = document.getElementById('ticker-select');
+            if (sel && sel.options.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = 'SPY';
+                opt.textContent = 'SPY';
+                sel.appendChild(opt);
+                sel.value = 'SPY';
+                this.currentTicker = 'SPY';
+            }
+            this.clearLoadingState();
+        }
         
         this.loadSettings();
         this.loadSignals();
@@ -248,7 +262,12 @@ class TradingSignalsApp {
         setTimeout(() => this.clearLoadingState(), 3000);
         this.startLoadingTimeout();
         
-        await this.refreshData();
+        try {
+            await this.refreshData();
+        } catch (e) {
+            console.warn('Initial refresh failed:', e);
+            this.clearLoadingState();
+        }
     }
     
     startLoadingTimeout() {
@@ -1514,45 +1533,67 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     
     async loadTickers() {
         const select = document.getElementById('ticker-select');
-        if (!select) return;
         const defaultSymbols = [{ symbol: 'SPY' }, { symbol: 'QQQ' }, { symbol: 'AAPL' }, { symbol: 'TSLA' }, { symbol: 'NVDA' }];
+        const normalize = (list) => {
+            if (!Array.isArray(list)) return defaultSymbols;
+            return list.map(t => {
+                const sym = (t && (t.symbol || t)) ? String(t.symbol || t).trim().toUpperCase() : '';
+                return sym ? { symbol: sym } : null;
+            }).filter(Boolean);
+        };
+        if (!select) {
+            this.currentTicker = 'SPY';
+            this.clearLoadingState();
+            return;
+        }
+        if (select.options.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = 'SPY';
+            opt.textContent = 'SPY';
+            select.appendChild(opt);
+            this.currentTicker = 'SPY';
+            select.value = 'SPY';
+        }
         let tickers = [];
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
             const response = await fetch('/api/tickers', { signal: controller.signal });
             clearTimeout(timeoutId);
-            if (!response.ok) throw new Error('Tickers API ' + response.status);
-            tickers = await response.json();
-            if (!Array.isArray(tickers) || tickers.length === 0) tickers = defaultSymbols;
+            if (response.ok) {
+                const raw = await response.json();
+                tickers = normalize(raw);
+            }
+            if (tickers.length === 0) tickers = defaultSymbols;
         } catch (error) {
             console.warn('Tickers load failed, using defaults:', error);
             tickers = defaultSymbols;
         }
-        select.innerHTML = '';
+        tickers = tickers.length ? tickers : defaultSymbols;
         const savedSelection = localStorage.getItem('scannerTickerSelection');
         let savedObj = {};
-        if (savedSelection) {
-            try { savedObj = JSON.parse(savedSelection); } catch (e) { savedObj = {}; }
-        }
+        try { if (savedSelection) savedObj = JSON.parse(savedSelection); } catch (e) {}
         this.scannerTickerSelection = {};
+        select.innerHTML = '';
         tickers.forEach(ticker => {
-            const sym = ticker.symbol || ticker;
+            const sym = ticker.symbol || '';
+            if (!sym) return;
             const option = document.createElement('option');
             option.value = sym;
             option.textContent = sym;
             select.appendChild(option);
             this.tickerSelection[sym] = true;
-            this.scannerTickerSelection[sym] = sym in savedObj ? savedObj[sym] : true;
+            this.scannerTickerSelection[sym] = savedObj[sym] !== false;
         });
-        if (tickers.length > 0) {
-            this.currentTicker = (tickers[0].symbol || tickers[0]);
-            if (!this.currentTicker) this.currentTicker = 'SPY';
-            select.value = this.currentTicker;
+        const firstSym = (tickers[0] && tickers[0].symbol) || 'SPY';
+        this.currentTicker = firstSym;
+        if (select.options.length) {
+            select.value = firstSym;
+            this.currentTicker = select.value || firstSym;
         }
         this.updateCoachPlaceholder();
-        this.renderScannerTickerList(tickers);
-        this.renderBodyScannerGrid(tickers);
+        try { this.renderScannerTickerList(tickers); } catch (e) { console.warn('renderScannerTickerList', e); }
+        try { this.renderBodyScannerGrid(tickers); } catch (e) { console.warn('renderBodyScannerGrid', e); }
         this.updateNavBadge();
         this.updateAllScanCounts();
         this.clearLoadingState();
@@ -2126,7 +2167,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const tickerSelect = document.getElementById('ticker-select');
         if (tickerSelect) {
             tickerSelect.addEventListener('change', (e) => {
-                this.currentTicker = e.target.value;
+                const sym = (e.target.value || '').trim().toUpperCase();
+                if (!sym) return;
+                this.currentTicker = sym;
                 this.lastReversalKey = null;
                 this.socket.emit('subscribe', { symbol: this.currentTicker });
                 this.showTickerLoading(true);
