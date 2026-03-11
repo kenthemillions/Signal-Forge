@@ -1,6 +1,8 @@
 (function() {
     "use strict";
     var currentTicker = "SPY";
+    var priceChart = null;
+    var volumeChart = null;
 
     function setDebug(o) {
         var k, el;
@@ -125,6 +127,7 @@
 
         setDebug({ "simple-debug-initialized": "yes", "simple-debug-ticker": currentTicker });
 
+        initCharts();
         var refreshBtn = document.getElementById("ticker-card-refresh");
         if (refreshBtn) refreshBtn.addEventListener("click", function() { loadQuote(currentTicker); });
 
@@ -174,6 +177,113 @@
         }
         await loadQuote(sym);
         await loadAnalysis(sym);
+        await loadChart(sym);
+    }
+
+    function showChartNoData(show) {
+        var el = document.getElementById("chart-no-data");
+        if (el) {
+            if (show) el.classList.remove("d-none"); else el.classList.add("d-none");
+        }
+    }
+
+    function initCharts() {
+        var priceCtx = document.getElementById("price-chart");
+        var volCtx = document.getElementById("volume-chart");
+        if (!priceCtx || typeof Chart === "undefined") return;
+        if (priceChart) priceChart.destroy();
+        priceChart = new Chart(priceCtx.getContext("2d"), {
+            type: "line",
+            data: {
+                labels: [],
+                datasets: [{ label: "Price", data: [], borderColor: "#4dabf7", backgroundColor: "rgba(77, 171, 247, 0.1)", borderWidth: 2, fill: true, tension: 0.1, pointRadius: 0 }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: true, grid: { color: "rgba(255,255,255,0.1)" }, ticks: { color: "#888", maxTicksLimit: 8 } },
+                    y: { display: true, grid: { color: "rgba(255,255,255,0.1)" }, ticks: { color: "#888" } }
+                }
+            }
+        });
+        if (volCtx) {
+            if (volumeChart) volumeChart.destroy();
+            volumeChart = new Chart(volCtx.getContext("2d"), {
+                type: "bar",
+                data: { labels: [], datasets: [{ label: "Volume", data: [], backgroundColor: "rgba(100, 149, 237, 0.5)", borderColor: "#6495ed", borderWidth: 1 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }
+            });
+        }
+        showChartNoData(true);
+    }
+
+    async function loadChart(symbol) {
+        var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
+        var url = "/api/market-data/" + encodeURIComponent(sym) + "?period=1d&interval=5m";
+        setDebug({
+            "module-chart-symbol": sym,
+            "module-chart-endpoint": url,
+            "module-chart-status": "...",
+            "module-chart-result": "..."
+        });
+        var noDataEl = document.getElementById("chart-no-data");
+        if (noDataEl) noDataEl.textContent = "Loading chart...";
+        showChartNoData(true);
+        try {
+            var res = await fetch(url);
+            setDebug({ "module-chart-status": String(res.status) });
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!data) {
+                setDebug({ "module-chart-result": "Invalid JSON" });
+                if (noDataEl) noDataEl.textContent = "No chart data — invalid response.";
+                if (priceChart && priceChart.data.datasets[0]) priceChart.data.datasets[0].data = [];
+                if (priceChart) priceChart.update("none");
+                return;
+            }
+            if (data.error || !(data.closes && data.closes.length > 0)) {
+                setDebug({ "module-chart-result": data.error || "no data" });
+                if (noDataEl) noDataEl.textContent = "No chart data — " + (data.error || "no bars returned.");
+                if (priceChart && priceChart.data.datasets[0]) priceChart.data.datasets[0].data = [];
+                if (priceChart) priceChart.update("none");
+                return;
+            }
+            var labels = (data.timestamps || []).map(function(t) {
+                var d = new Date(t);
+                return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+            });
+            if (priceChart) {
+                priceChart.data.labels = labels;
+                priceChart.data.datasets[0].data = data.closes || [];
+                priceChart.update("none");
+            }
+            var vols = data.volumes || [];
+            var opens = data.opens || [];
+            var closes = data.closes || [];
+            if (volumeChart && vols.length > 0) {
+                var avgVol = vols.reduce(function(a, b) { return a + b; }, 0) / vols.length;
+                var bgColors = [];
+                for (var i = 0; i < vols.length; i++) {
+                    var isUp = (closes[i] || 0) >= (opens[i] || 0);
+                    bgColors.push(isUp ? "rgba(0, 200, 100, 0.6)" : "rgba(255, 100, 100, 0.6)");
+                }
+                volumeChart.data.labels = labels.length ? labels : new Array(vols.length).fill("");
+                volumeChart.data.datasets[0].data = vols;
+                volumeChart.data.datasets[0].backgroundColor = bgColors;
+                volumeChart.update("none");
+            }
+            showChartNoData(false);
+            setDebug({ "module-chart-result": "ok " + (data.closes ? data.closes.length : 0) + " bars" });
+        } catch (e) {
+            var msg = (e && e.message) ? e.message : String(e);
+            setDebug({ "module-chart-result": "error: " + msg });
+            if (noDataEl) noDataEl.textContent = "Chart failed: " + msg;
+            if (priceChart && priceChart.data.datasets[0]) priceChart.data.datasets[0].data = [];
+            if (priceChart) priceChart.update("none");
+            showChartNoData(true);
+        }
     }
 
     async function loadAnalysis(symbol) {
