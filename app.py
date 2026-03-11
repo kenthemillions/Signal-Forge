@@ -46,54 +46,48 @@ indicator_engine = IndicatorEngine()
 strategy_orchestrator = StrategyOrchestrator()
 
 _cheap_options_cache = {'data': None, 'timestamp': None}
+_db_ready = False
+_DEFAULT_TICKERS = [{'symbol': s} for s in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'SLV', 'GLD']]
 
 
-with app.app_context():
-    db.create_all()
-    if Ticker.query.count() == 0:
-        default_tickers = ['SPY', 'SLV', 'GLD', 'AAPL', 'QQQ', 'TSLA', 'NVDA']  
-        for symbol in default_tickers:
-            ticker = Ticker(symbol=symbol, is_active=True)
-            db.session.add(ticker)
-        db.session.commit()
-    
-    if UserSettings.query.count() == 0:
-        default_settings = UserSettings(
-            rsi_oversold=30,
-            rsi_overbought=70,
-            macd_sensitivity=1.0,
-            volume_spike_threshold=2.0,
-            bollinger_period=20,
-            bollinger_std=2.0,
-            audio_enabled=True,
-            notification_level='all'
-        )
-        db.session.add(default_settings)
-        db.session.commit()
+def _init_db():
+    global _db_ready
+    try:
+        with app.app_context():
+            db.create_all()
+            if Ticker.query.count() == 0:
+                for symbol in ['SPY', 'SLV', 'GLD', 'AAPL', 'QQQ', 'TSLA', 'NVDA']:
+                    db.session.add(Ticker(symbol=symbol, is_active=True))
+                db.session.commit()
+            if UserSettings.query.first() is None:
+                db.session.add(UserSettings(
+                    rsi_oversold=30, rsi_overbought=70, macd_sensitivity=1.0,
+                    volume_spike_threshold=2.0, bollinger_period=20, bollinger_std=2.0,
+                    audio_enabled=True, notification_level='all'
+                ))
+                db.session.commit()
+            if User.query.filter_by(role='admin').first() is None:
+                db.session.add(User(
+                    email='admin@signalforge.com', username=Config.MASTER_USERNAME,
+                    password_hash=hash_password(Config.MASTER_PASSWORD),
+                    role='admin', plan='elite', is_active=True
+                ))
+                db.session.commit()
+            if User.query.filter_by(role='beta').first() is None:
+                db.session.add(User(
+                    email='beta@signalforge.com', username=Config.BETA_USERNAME,
+                    password_hash=hash_password(Config.BETA_PASSWORD),
+                    role='beta', plan='beta', is_active=True
+                ))
+                db.session.commit()
+            _db_ready = True
+            logger.info('Database initialized')
+    except Exception as e:
+        logger.warning('Database init failed (app will still run with defaults): %s', e)
+        _db_ready = False
 
-    
-    if User.query.filter_by(role='admin').first() is None:
-        master = User(
-            email='admin@signalforge.com',
-            username=Config.MASTER_USERNAME,
-            password_hash=hash_password(Config.MASTER_PASSWORD),
-            role='admin',
-            plan='elite',
-            is_active=True
-        )
-        db.session.add(master)
-        db.session.commit()
-    if User.query.filter_by(role='beta').first() is None:
-        beta_user = User(
-            email='beta@signalforge.com',
-            username=Config.BETA_USERNAME,
-            password_hash=hash_password(Config.BETA_PASSWORD),
-            role='beta',
-            plan='beta',
-            is_active=True
-        )
-        db.session.add(beta_user)
-        db.session.commit()
+
+_init_db()
 
 def background_price_updater():
     """Background task to push real-time price updates to connected clients."""
@@ -552,12 +546,16 @@ def coach_status():
 
 @app.route('/api/tickers')
 def get_tickers():
+    if not _db_ready:
+        return jsonify(_DEFAULT_TICKERS)
     try:
         tickers = Ticker.query.filter_by(is_active=True).all()
+        if not tickers:
+            return jsonify(_DEFAULT_TICKERS)
         return jsonify([t.to_dict() for t in tickers])
     except Exception as e:
         logger.warning('Tickers fetch failed: %s', e)
-        return jsonify([{'symbol': s} for s in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA']])
+        return jsonify(_DEFAULT_TICKERS)
 
 @app.route('/api/tickers', methods=['POST'])
 def add_ticker():
@@ -600,31 +598,35 @@ def remove_ticker(symbol):
 
 @app.route('/api/market-data/<symbol>')
 def get_market_data(symbol):
-    period = request.args.get('period', '1d')
-    interval = request.args.get('interval', '5m')
-    data = data_fetcher.get_stock_data(symbol, period=period, interval=interval)
-    return jsonify(data)
+    try:
+        period = request.args.get('period', '1d')
+        interval = request.args.get('interval', '5m')
+        data = data_fetcher.get_stock_data((symbol or '').upper(), period=period, interval=interval)
+        return jsonify(data if data else {'error': 'No data'})
+    except Exception as e:
+        logger.warning('Market data failed for %s: %s', symbol, e)
+        return jsonify({'error': 'Failed to fetch data', 'closes': [], 'timestamps': []})
 
 @app.route('/api/indicators/<symbol>')
 def get_indicators(symbol):
-    period = request.args.get('period', '5d')
-    interval = request.args.get('interval', '5m')
-    data = data_fetcher.get_stock_data(symbol, period=period, interval=interval)
-    if not data or 'error' in data:
+    try:
+        period = request.args.get('period', '5d')
+        interval = request.args.get('interval', '5m')
+        data = data_fetcher.get_stock_data((symbol or '').upper(), period=period, interval=interval)
+        if not data or data.get('error'):
+            return jsonify({'error': 'Failed to fetch data'})
+        indicators = indicator_engine.calculate_all(data)
+        import numpy as np
+        opens = np.array(data.get('opens', []))
+        highs = np.array(data.get('highs', []))
+        lows = np.array(data.get('lows', []))
+        closes = np.array(data.get('closes', []))
+        if len(closes) > 1:
+            indicators['heiken_ashi'] = indicator_engine.calculate_heiken_ashi(opens, highs, lows, closes)
+        return jsonify(indicators)
+    except Exception as e:
+        logger.warning('Indicators failed for %s: %s', symbol, e)
         return jsonify({'error': 'Failed to fetch data'})
-    
-    indicators = indicator_engine.calculate_all(data)
-    
-    import numpy as np
-    opens = np.array(data.get('opens', []))
-    highs = np.array(data.get('highs', []))
-    lows = np.array(data.get('lows', []))
-    closes = np.array(data.get('closes', []))
-    
-    if len(closes) > 1:
-        indicators['heiken_ashi'] = indicator_engine.calculate_heiken_ashi(opens, highs, lows, closes)
-    
-    return jsonify(indicators)
 
 @app.route('/api/signals')
 def get_signals():
@@ -1032,334 +1034,335 @@ def classify_signal_with_guardrails(raw_signal, confidence_pct, volume_ratio, rs
 @app.route('/api/trade-recommendation/<symbol>')
 def get_trade_recommendation(symbol):
     """Get actionable trade recommendation with strikes, entries, targets"""
-    symbol = symbol.upper()
-    
-    cache_key = f"{symbol}_5d_5m"
-    if cache_key in data_fetcher._cache:
-        del data_fetcher._cache[cache_key]
-    if cache_key in data_fetcher._cache_expiry:
-        del data_fetcher._cache_expiry[cache_key]
-    
-    data = data_fetcher.get_stock_data(symbol, period='5d', interval='5m')
-    if not data or 'error' in data:
-        return jsonify({'error': 'Failed to fetch data', 'has_signal': False})
-    
-    settings = UserSettings.query.first()
-    indicators = indicator_engine.calculate_all(data, settings)
-    signal = strategy_orchestrator.generate_signal(symbol, indicators, data, settings)
-    market_status = strategy_orchestrator.get_market_status()
-    ct_info = get_central_time_info()
-    
-    current_price = data.get('current_price', 0)
-    direction = signal.get('direction', 'NEUTRAL')
-    strength = signal.get('strength', 50)
-    
-    bullish_count = 0
-    bearish_count = 0
-    reasons = []
-    
-    rsi = indicators.get('rsi', {})
-    rsi_val = rsi.get('value', 50)
-    if rsi_val < 30:
-        bullish_count += 1
-        reasons.append(f"RSI oversold at {rsi_val:.0f}")
-    elif rsi_val > 70:
-        bearish_count += 1
-        reasons.append(f"RSI overbought at {rsi_val:.0f}")
-    
-    macd = indicators.get('macd', {})
-    if macd.get('signal_type') in ['BULLISH', 'BULLISH_CROSS']:
-        bullish_count += 1
-        reasons.append("MACD bullish crossover")
-    elif macd.get('signal_type') in ['BEARISH', 'BEARISH_CROSS']:
-        bearish_count += 1
-        reasons.append("MACD bearish crossover")
-    
-    vwap = indicators.get('vwap', {})
-    if vwap.get('above_vwap'):
-        bullish_count += 1
-        reasons.append("Price above VWAP")
-    else:
-        bearish_count += 1
-        reasons.append("Price below VWAP")
-    
-    trend = indicators.get('trend', {})
-    if trend.get('direction') == 'BULLISH':
-        bullish_count += 1
-        reasons.append(f"Trend bullish ({trend.get('strength', 0)}%)")
-    elif trend.get('direction') == 'BEARISH':
-        bearish_count += 1
-        reasons.append(f"Trend bearish ({trend.get('strength', 0)}%)")
-    
-    
-    
-    change_pct = data.get('change_percent', 0)
-    is_extended_hours = market_status.get('current_session') in ['PRE_MARKET', 'AFTER_HOURS']
-    momentum_weight = 2 if is_extended_hours else 1  
-    
-    if change_pct >= 0.5:
-        bullish_count += momentum_weight + 1  
-        reasons.append(f"STRONG price momentum UP (+{change_pct:.2f}%)")
-    elif change_pct >= 0.2:
-        bullish_count += momentum_weight  
-        reasons.append(f"Price momentum UP (+{change_pct:.2f}%)")
-    elif change_pct <= -0.5:
-        bearish_count += momentum_weight + 1
-        reasons.append(f"STRONG price momentum DOWN ({change_pct:.2f}%)")
-    elif change_pct <= -0.2:
-        bearish_count += momentum_weight
-        reasons.append(f"Price momentum DOWN ({change_pct:.2f}%)")
-    
-    vol = indicators.get('volume', {})
-    vol_ratio = vol.get('spike_ratio', 1)
-    if vol.get('spike'):
-        reasons.append(f"Volume: {vol_ratio:.1f}x average (SPIKE)")
-    elif vol_ratio >= 1.2:
-        reasons.append(f"Volume: Above average ({vol_ratio:.1f}x)")
-    else:
-        reasons.append(f"Volume: Below average ({vol_ratio:.1f}x)")
-    
-    vol = indicators.get('volume', {})
-    volume_above_avg = vol.get('spike_ratio', 1) >= 1.2
-    volume_spike = vol.get('spike', False)
-    
-    total_indicators = bullish_count + bearish_count
-    
-    
-    if bullish_count >= 4 and volume_spike:
-        raw_signal = 'STRONG BUY'
-    elif bullish_count >= 3 and bullish_count > bearish_count:
-        raw_signal = 'BUY'
-    elif bearish_count >= 4 and volume_spike:
-        raw_signal = 'STRONG SELL'
-    elif bearish_count >= 3 and bearish_count > bullish_count:
-        raw_signal = 'SELL'
-    elif bullish_count >= 2 or bearish_count >= 2:
-        raw_signal = 'WATCH'
-    else:
-        raw_signal = 'WAIT'
-    
-    
-    if raw_signal in ['BUY', 'SELL'] and vol_ratio < 1.0:
-        raw_signal = 'PREPARE'
-        reasons.append(f"Need volume confirmation (current {vol_ratio:.1f}x average).")
-    
-    
-    higher_tf_trend = None  
+    symbol = (symbol or '').upper()
+    if not symbol:
+        return jsonify({'error': 'Symbol required', 'current_price': None, 'has_signal': False})
     try:
-        data_15m = data_fetcher.get_stock_data(symbol, period='5d', interval='15m')
-        if data_15m and 'error' not in data_15m:
-            indicators_15m = indicator_engine.calculate_all(data_15m, settings)
-            higher_tf_trend = indicators_15m.get('trend', {}).get('direction', 'NEUTRAL')
-            if raw_signal in ['STRONG BUY', 'BUY'] and higher_tf_trend == 'BEARISH':
-                raw_signal = 'PREPARE'
-                reasons.append("Higher timeframe (15m) still bearish — wait for trend alignment.")
-            elif raw_signal in ['STRONG SELL', 'SELL'] and higher_tf_trend == 'BULLISH':
-                raw_signal = 'PREPARE'
-                reasons.append("Higher timeframe (15m) still bullish — wait for trend alignment.")
+        cache_key = f"{symbol}_5d_5m"
+        if cache_key in getattr(data_fetcher, '_cache', {}):
+            data_fetcher._cache.pop(cache_key, None)
+        if cache_key in getattr(data_fetcher, '_cache_expiry', {}):
+            data_fetcher._cache_expiry.pop(cache_key, None)
+        data = data_fetcher.get_stock_data(symbol, period='5d', interval='5m')
+        if not data or data.get('error'):
+            return jsonify({'error': 'Failed to fetch data', 'current_price': None, 'main_signal': 'WAIT', 'has_signal': False})
+        settings = UserSettings.query.first() if _db_ready else None
+        indicators = indicator_engine.calculate_all(data, settings)
+        signal = strategy_orchestrator.generate_signal(symbol, indicators, data, settings)
+        market_status = strategy_orchestrator.get_market_status()
+        ct_info = get_central_time_info()
+        current_price = data.get('current_price', 0)
+        direction = signal.get('direction', 'NEUTRAL')
+        strength = signal.get('strength', 50)
+        bullish_count = 0
+        bearish_count = 0
+        reasons = []
+    
+        rsi = indicators.get('rsi', {})
+        rsi_val = rsi.get('value', 50)
+        if rsi_val < 30:
+           bullish_count += 1
+           reasons.append(f"RSI oversold at {rsi_val:.0f}")
+        elif rsi_val > 70:
+           bearish_count += 1
+           reasons.append(f"RSI overbought at {rsi_val:.0f}")
+    
+        macd = indicators.get('macd', {})
+        if macd.get('signal_type') in ['BULLISH', 'BULLISH_CROSS']:
+           bullish_count += 1
+           reasons.append("MACD bullish crossover")
+        elif macd.get('signal_type') in ['BEARISH', 'BEARISH_CROSS']:
+           bearish_count += 1
+           reasons.append("MACD bearish crossover")
+    
+        vwap = indicators.get('vwap', {})
+        if vwap.get('above_vwap'):
+           bullish_count += 1
+           reasons.append("Price above VWAP")
+        else:
+           bearish_count += 1
+           reasons.append("Price below VWAP")
+    
+        trend = indicators.get('trend', {})
+        if trend.get('direction') == 'BULLISH':
+           bullish_count += 1
+           reasons.append(f"Trend bullish ({trend.get('strength', 0)}%)")
+        elif trend.get('direction') == 'BEARISH':
+           bearish_count += 1
+           reasons.append(f"Trend bearish ({trend.get('strength', 0)}%)")
+    
+    
+    
+        change_pct = data.get('change_percent', 0)
+        is_extended_hours = market_status.get('current_session') in ['PRE_MARKET', 'AFTER_HOURS']
+        momentum_weight = 2 if is_extended_hours else 1  
+    
+        if change_pct >= 0.5:
+           bullish_count += momentum_weight + 1  
+           reasons.append(f"STRONG price momentum UP (+{change_pct:.2f}%)")
+        elif change_pct >= 0.2:
+           bullish_count += momentum_weight  
+           reasons.append(f"Price momentum UP (+{change_pct:.2f}%)")
+        elif change_pct <= -0.5:
+           bearish_count += momentum_weight + 1
+           reasons.append(f"STRONG price momentum DOWN ({change_pct:.2f}%)")
+        elif change_pct <= -0.2:
+           bearish_count += momentum_weight
+           reasons.append(f"Price momentum DOWN ({change_pct:.2f}%)")
+    
+        vol = indicators.get('volume', {})
+        vol_ratio = vol.get('spike_ratio', 1)
+        if vol.get('spike'):
+           reasons.append(f"Volume: {vol_ratio:.1f}x average (SPIKE)")
+        elif vol_ratio >= 1.2:
+           reasons.append(f"Volume: Above average ({vol_ratio:.1f}x)")
+        else:
+           reasons.append(f"Volume: Below average ({vol_ratio:.1f}x)")
+    
+        vol = indicators.get('volume', {})
+        volume_above_avg = vol.get('spike_ratio', 1) >= 1.2
+        volume_spike = vol.get('spike', False)
+    
+        total_indicators = bullish_count + bearish_count
+    
+    
+        if bullish_count >= 4 and volume_spike:
+           raw_signal = 'STRONG BUY'
+        elif bullish_count >= 3 and bullish_count > bearish_count:
+           raw_signal = 'BUY'
+        elif bearish_count >= 4 and volume_spike:
+           raw_signal = 'STRONG SELL'
+        elif bearish_count >= 3 and bearish_count > bullish_count:
+           raw_signal = 'SELL'
+        elif bullish_count >= 2 or bearish_count >= 2:
+           raw_signal = 'WATCH'
+        else:
+           raw_signal = 'WAIT'
+    
+    
+        if raw_signal in ['BUY', 'SELL'] and vol_ratio < 1.0:
+           raw_signal = 'PREPARE'
+           reasons.append(f"Need volume confirmation (current {vol_ratio:.1f}x average).")
+    
+    
+        higher_tf_trend = None  
+        try:
+           data_15m = data_fetcher.get_stock_data(symbol, period='5d', interval='15m')
+           if data_15m and 'error' not in data_15m:
+               indicators_15m = indicator_engine.calculate_all(data_15m, settings)
+               higher_tf_trend = indicators_15m.get('trend', {}).get('direction', 'NEUTRAL')
+               if raw_signal in ['STRONG BUY', 'BUY'] and higher_tf_trend == 'BEARISH':
+                   raw_signal = 'PREPARE'
+                   reasons.append("Higher timeframe (15m) still bearish — wait for trend alignment.")
+               elif raw_signal in ['STRONG SELL', 'SELL'] and higher_tf_trend == 'BULLISH':
+                   raw_signal = 'PREPARE'
+                   reasons.append("Higher timeframe (15m) still bullish — wait for trend alignment.")
             
-            if raw_signal == 'STRONG BUY' and higher_tf_trend != 'BULLISH':
-                raw_signal = 'BUY'
-                reasons.append("15m not yet bullish — STRONG CALL requires 5m & 15m alignment.")
-            elif raw_signal == 'STRONG SELL' and higher_tf_trend != 'BEARISH':
-                raw_signal = 'SELL'
-                reasons.append("15m not yet bearish — STRONG PUT requires 5m & 15m alignment.")
-    except Exception:
-        pass
+               if raw_signal == 'STRONG BUY' and higher_tf_trend != 'BULLISH':
+                   raw_signal = 'BUY'
+                   reasons.append("15m not yet bullish — STRONG CALL requires 5m & 15m alignment.")
+               elif raw_signal == 'STRONG SELL' and higher_tf_trend != 'BEARISH':
+                   raw_signal = 'SELL'
+                   reasons.append("15m not yet bearish — STRONG PUT requires 5m & 15m alignment.")
+        except Exception:
+           pass
     
     
-    confidence_pct = strength  
+        confidence_pct = strength  
     
     
-    main_signal, signal_class, guardrail_reason, education_text, entry_window, entry_type, conviction_label, wait_for_text = \
-        classify_signal_with_guardrails(
-            raw_signal=raw_signal,
-            confidence_pct=confidence_pct,
-            volume_ratio=vol_ratio,
-            rsi_val=rsi_val,
-            macd_signal=macd.get('signal_type', 'NEUTRAL'),
-            vwap_above=vwap.get('above_vwap', False),
-            trend_direction=trend.get('direction', 'NEUTRAL'),
-            ct_info=ct_info,
-            is_premarket=market_status.get('current_session') == 'PRE_MARKET'
+        main_signal, signal_class, guardrail_reason, education_text, entry_window, entry_type, conviction_label, wait_for_text = \
+           classify_signal_with_guardrails(
+               raw_signal=raw_signal,
+               confidence_pct=confidence_pct,
+               volume_ratio=vol_ratio,
+               rsi_val=rsi_val,
+               macd_signal=macd.get('signal_type', 'NEUTRAL'),
+               vwap_above=vwap.get('above_vwap', False),
+               trend_direction=trend.get('direction', 'NEUTRAL'),
+               ct_info=ct_info,
+               is_premarket=market_status.get('current_session') == 'PRE_MARKET'
+           )
+    
+    
+        summary = ""
+        if main_signal == 'STRONG BUY':
+           summary = f"{bullish_count} of 5 indicators bullish + volume surge! High conviction call setup."
+        elif main_signal == 'BUY':
+           summary = f"{bullish_count} of 5 indicators bullish. Good setup for calls."
+        elif main_signal == 'STRONG SELL':
+           summary = f"{bearish_count} of 5 indicators bearish + volume surge! High conviction put setup."
+        elif main_signal == 'SELL':
+           summary = f"{bearish_count} of 5 indicators bearish. Good setup for puts."
+        elif main_signal == 'PREPARE':
+           summary = guardrail_reason if guardrail_reason else f"Bias forming ({max(bullish_count, bearish_count)} of 5 aligned). Wait for confirmation."
+        elif main_signal == 'WATCH':
+           summary = f"Building setup ({max(bullish_count, bearish_count)} of 5 aligned). Watch for confirmation."
+        else:
+           summary = f"Mixed signals ({bullish_count} bullish, {bearish_count} bearish). Wait for confirmation."
+    
+    
+        trend_reversal = _detect_trend_reversal(
+           symbol, data, indicators,
+           higher_tf_trend or 'NEUTRAL',
+           trend.get('direction', 'NEUTRAL')
         )
     
     
-    summary = ""
-    if main_signal == 'STRONG BUY':
-        summary = f"{bullish_count} of 5 indicators bullish + volume surge! High conviction call setup."
-    elif main_signal == 'BUY':
-        summary = f"{bullish_count} of 5 indicators bullish. Good setup for calls."
-    elif main_signal == 'STRONG SELL':
-        summary = f"{bearish_count} of 5 indicators bearish + volume surge! High conviction put setup."
-    elif main_signal == 'SELL':
-        summary = f"{bearish_count} of 5 indicators bearish. Good setup for puts."
-    elif main_signal == 'PREPARE':
-        summary = guardrail_reason if guardrail_reason else f"Bias forming ({max(bullish_count, bearish_count)} of 5 aligned). Wait for confirmation."
-    elif main_signal == 'WATCH':
-        summary = f"Building setup ({max(bullish_count, bearish_count)} of 5 aligned). Watch for confirmation."
-    else:
-        summary = f"Mixed signals ({bullish_count} bullish, {bearish_count} bearish). Wait for confirmation."
-    
-    
-    trend_reversal = _detect_trend_reversal(
-        symbol, data, indicators,
-        higher_tf_trend or 'NEUTRAL',
-        trend.get('direction', 'NEUTRAL')
-    )
-    
-    
-    if main_signal in ['STRONG BUY', 'BUY']:
-        edge_direction = 'CALL'
-        edge_pct = round(confidence_pct)
-    elif main_signal in ['STRONG SELL', 'SELL']:
-        edge_direction = 'PUT'
-        edge_pct = round(confidence_pct)
-    else:
-        edge_direction = 'FLAT'
-        edge_pct = 50
-    
-    parts = []
-    if higher_tf_trend and higher_tf_trend != 'NEUTRAL':
-        parts.append(f"15m {higher_tf_trend.lower()}")
-    parts.append("above VWAP" if vwap.get('above_vwap') else "below VWAP")
-    parts.append(f"vol {vol_ratio:.1f}x")
-    if edge_direction == 'FLAT':
-        edge_one_liner = "No edge — wait for trend + volume alignment."
-    else:
-        edge_one_liner = f"5m & 15m agree, {', '.join(parts)}."
-    
-    sr = indicators.get('support_resistance', {})
-    support = sr.get('support', current_price * 0.98)
-    resistance = sr.get('resistance', current_price * 1.02)
-    
-    if support >= current_price:
-        support = current_price * 0.985
-    if resistance <= current_price:
-        resistance = current_price * 1.015
-    
-    entry = current_price
-    
-    
-    vwap_value = vwap.get('value', current_price)
-    
-    
-    is_bullish_bias = raw_signal in ['STRONG BUY', 'BUY'] or bullish_count > bearish_count
-    
-    if main_signal in ['STRONG BUY', 'BUY'] or (main_signal == 'PREPARE' and is_bullish_bias):
-        stop = max(support, entry * 0.985)
-        if stop >= entry:
-            stop = entry * 0.985
-        risk = entry - stop
-        target = entry + (risk * 2)
-        if target < resistance:
-            target = resistance
-        option_type = "CALL"
-        strike = round(current_price / 5) * 5
-        
-        hard_stop = max(min(vwap_value, support), entry * 0.97)
-        stop_guidance = f"Below VWAP (${vwap_value:.2f}) or support (${support:.2f})"
-    elif main_signal in ['STRONG SELL', 'SELL'] or (main_signal == 'PREPARE' and not is_bullish_bias):
-        stop = min(resistance, entry * 1.015)
-        if stop <= entry:
-            stop = entry * 1.015
-        risk = stop - entry
-        target = entry - (risk * 2)
-        if target > support:
-            target = support
-        option_type = "PUT"
-        strike = round(current_price / 5) * 5
-        
-        hard_stop = min(max(vwap_value, resistance), entry * 1.03)
-        stop_guidance = f"Above VWAP (${vwap_value:.2f}) or resistance (${resistance:.2f})"
-    else:
-        if bullish_count >= bearish_count:
-            stop = max(support, entry * 0.985)
-            if stop >= entry:
-                stop = entry * 0.985
-            risk = entry - stop
-            target = entry + (risk * 2)
-            option_type = "CALL" if bullish_count > bearish_count else "-"
-            hard_stop = max(min(vwap_value, support), entry * 0.97)
-            stop_guidance = f"Below VWAP (${vwap_value:.2f}) or support (${support:.2f})"
+        if main_signal in ['STRONG BUY', 'BUY']:
+           edge_direction = 'CALL'
+           edge_pct = round(confidence_pct)
+        elif main_signal in ['STRONG SELL', 'SELL']:
+           edge_direction = 'PUT'
+           edge_pct = round(confidence_pct)
         else:
-            stop = min(resistance, entry * 1.015)
-            if stop <= entry:
-                stop = entry * 1.015
-            risk = stop - entry
-            target = entry - (risk * 2)
-            option_type = "PUT"
-            hard_stop = min(max(vwap_value, resistance), entry * 1.03)
-            stop_guidance = f"Above VWAP (${vwap_value:.2f}) or resistance (${resistance:.2f})"
-        strike = round(current_price / 5) * 5
+           edge_direction = 'FLAT'
+           edge_pct = 50
     
-    from datetime import datetime, timedelta
-    today = datetime.now()
-    days_to_friday = (4 - today.weekday()) % 7
-    if days_to_friday == 0:
-        days_to_friday = 7
-    next_friday = today + timedelta(days=days_to_friday)
-    expiry = next_friday.strftime('%m/%d')
+        parts = []
+        if higher_tf_trend and higher_tf_trend != 'NEUTRAL':
+           parts.append(f"15m {higher_tf_trend.lower()}")
+        parts.append("above VWAP" if vwap.get('above_vwap') else "below VWAP")
+        parts.append(f"vol {vol_ratio:.1f}x")
+        if edge_direction == 'FLAT':
+           edge_one_liner = "No edge — wait for trend + volume alignment."
+        else:
+           edge_one_liner = f"5m & 15m agree, {', '.join(parts)}."
+    
+        sr = indicators.get('support_resistance', {})
+        support = sr.get('support', current_price * 0.98)
+        resistance = sr.get('resistance', current_price * 1.02)
+    
+        if support >= current_price:
+           support = current_price * 0.985
+        if resistance <= current_price:
+           resistance = current_price * 1.015
+    
+        entry = current_price
     
     
-    confidence_tier = 'high' if confidence_pct >= 90 else ('normal' if confidence_pct >= 70 else 'muted')
-    confidence_label = 'HIGH' if strength >= 75 else ('MODERATE' if strength >= 50 else 'LOW')
-    position_contracts = max(1, min(5, int(10000 * 0.02 / (current_price * 0.05))))
-    max_risk = position_contracts * current_price * 0.05
+        vwap_value = vwap.get('value', current_price)
     
-    return jsonify({
-        'has_signal': main_signal not in ['WAIT', 'WATCH'],
-        'main_signal': main_signal,
-        'raw_signal': raw_signal,
-        'signal_class': signal_class,
-        'summary': summary,
-        'confidence': confidence_label,
-        'confidence_pct': round(confidence_pct, 1),
-        'confidence_tier': confidence_tier,
-        'conviction_label': conviction_label,
-        'strength': strength,
-        'bullish_count': bullish_count,
-        'bearish_count': bearish_count,
-        'reasons': reasons,
-        'entry': round(entry, 2),
-        'target': round(target, 2),
-        'stop': round(stop, 2),
-        'hard_stop': round(hard_stop, 2),
-        'stop_guidance': stop_guidance,
-        'max_loss_rule': "Exit if option premium drops 30%",
-        'option_type': option_type,
-        'strike': strike,
-        'expiry': expiry,
-        'position_contracts': position_contracts,
-        'max_risk': round(max_risk, 2),
-        'current_price': current_price,
-        'change': data.get('change', 0),
-        'change_percent': data.get('change_percent', 0),
-        'education_text': education_text,
-        'entry_window': entry_window,
-        'entry_type': entry_type,
-        'wait_for_text': wait_for_text if main_signal == 'PREPARE' else '',
-        'time_ct': ct_info['time_ct'],
-        'indicators': {
-            'rsi': rsi,
-            'macd': macd,
-            'vwap': vwap,
-            'trend': trend,
-            'volume': vol,
-            'bollinger': indicators.get('bollinger', {}),
-            'support_resistance': sr
-        },
-        'market_status': market_status,
-        'higher_tf_trend': higher_tf_trend,
-        'edge_direction': edge_direction,
-        'edge_pct': edge_pct,
-        'edge_one_liner': edge_one_liner,
-        'trend_reversal_detected': trend_reversal.get('detected', False),
-        'trend_reversal_direction': trend_reversal.get('direction'),
-        'trend_reversal_reason': trend_reversal.get('reason', ''),
+    
+        is_bullish_bias = raw_signal in ['STRONG BUY', 'BUY'] or bullish_count > bearish_count
+    
+        if main_signal in ['STRONG BUY', 'BUY'] or (main_signal == 'PREPARE' and is_bullish_bias):
+           stop = max(support, entry * 0.985)
+           if stop >= entry:
+               stop = entry * 0.985
+           risk = entry - stop
+           target = entry + (risk * 2)
+           if target < resistance:
+               target = resistance
+           option_type = "CALL"
+           strike = round(current_price / 5) * 5
+        
+           hard_stop = max(min(vwap_value, support), entry * 0.97)
+           stop_guidance = f"Below VWAP (${vwap_value:.2f}) or support (${support:.2f})"
+        elif main_signal in ['STRONG SELL', 'SELL'] or (main_signal == 'PREPARE' and not is_bullish_bias):
+           stop = min(resistance, entry * 1.015)
+           if stop <= entry:
+               stop = entry * 1.015
+           risk = stop - entry
+           target = entry - (risk * 2)
+           if target > support:
+               target = support
+           option_type = "PUT"
+           strike = round(current_price / 5) * 5
+        
+           hard_stop = min(max(vwap_value, resistance), entry * 1.03)
+           stop_guidance = f"Above VWAP (${vwap_value:.2f}) or resistance (${resistance:.2f})"
+        else:
+           if bullish_count >= bearish_count:
+               stop = max(support, entry * 0.985)
+               if stop >= entry:
+                   stop = entry * 0.985
+               risk = entry - stop
+               target = entry + (risk * 2)
+               option_type = "CALL" if bullish_count > bearish_count else "-"
+               hard_stop = max(min(vwap_value, support), entry * 0.97)
+               stop_guidance = f"Below VWAP (${vwap_value:.2f}) or support (${support:.2f})"
+           else:
+               stop = min(resistance, entry * 1.015)
+               if stop <= entry:
+                   stop = entry * 1.015
+               risk = stop - entry
+               target = entry - (risk * 2)
+               option_type = "PUT"
+               hard_stop = min(max(vwap_value, resistance), entry * 1.03)
+               stop_guidance = f"Above VWAP (${vwap_value:.2f}) or resistance (${resistance:.2f})"
+           strike = round(current_price / 5) * 5
+    
+        from datetime import datetime, timedelta
+        today = datetime.now()
+        days_to_friday = (4 - today.weekday()) % 7
+        if days_to_friday == 0:
+           days_to_friday = 7
+        next_friday = today + timedelta(days=days_to_friday)
+        expiry = next_friday.strftime('%m/%d')
+    
+    
+        confidence_tier = 'high' if confidence_pct >= 90 else ('normal' if confidence_pct >= 70 else 'muted')
+        confidence_label = 'HIGH' if strength >= 75 else ('MODERATE' if strength >= 50 else 'LOW')
+        position_contracts = max(1, min(5, int(10000 * 0.02 / (current_price * 0.05))))
+        max_risk = position_contracts * current_price * 0.05
+    
+        return jsonify({
+           'has_signal': main_signal not in ['WAIT', 'WATCH'],
+           'main_signal': main_signal,
+           'raw_signal': raw_signal,
+           'signal_class': signal_class,
+           'summary': summary,
+           'confidence': confidence_label,
+           'confidence_pct': round(confidence_pct, 1),
+           'confidence_tier': confidence_tier,
+           'conviction_label': conviction_label,
+           'strength': strength,
+           'bullish_count': bullish_count,
+           'bearish_count': bearish_count,
+           'reasons': reasons,
+           'entry': round(entry, 2),
+           'target': round(target, 2),
+           'stop': round(stop, 2),
+           'hard_stop': round(hard_stop, 2),
+           'stop_guidance': stop_guidance,
+           'max_loss_rule': "Exit if option premium drops 30%",
+           'option_type': option_type,
+           'strike': strike,
+           'expiry': expiry,
+           'position_contracts': position_contracts,
+           'max_risk': round(max_risk, 2),
+           'current_price': current_price,
+           'change': data.get('change', 0),
+           'change_percent': data.get('change_percent', 0),
+           'education_text': education_text,
+           'entry_window': entry_window,
+           'entry_type': entry_type,
+           'wait_for_text': wait_for_text if main_signal == 'PREPARE' else '',
+           'time_ct': ct_info['time_ct'],
+           'indicators': {
+               'rsi': rsi,
+               'macd': macd,
+               'vwap': vwap,
+               'trend': trend,
+               'volume': vol,
+               'bollinger': indicators.get('bollinger', {}),
+               'support_resistance': sr
+           },
+           'market_status': market_status,
+           'higher_tf_trend': higher_tf_trend,
+           'edge_direction': edge_direction,
+           'edge_pct': edge_pct,
+           'edge_one_liner': edge_one_liner,
+           'trend_reversal_detected': trend_reversal.get('detected', False),
+           'trend_reversal_direction': trend_reversal.get('direction'),
+           'trend_reversal_reason': trend_reversal.get('reason', ''),
         'trend_reversal_severity': trend_reversal.get('severity', 'high'),
         'last_updated': datetime.now().isoformat()
     })
+    except Exception as e:
+        logger.warning('Trade recommendation failed: %s', e)
+        return jsonify({'error': 'Server busy. Try again.', 'current_price': None, 'main_signal': 'WAIT', 'has_signal': False, 'summary': 'Click Refresh to retry.'})
 
 @app.route('/api/pivot-points/<symbol>')
 def get_pivot_points(symbol):
