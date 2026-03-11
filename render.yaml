@@ -7,8 +7,8 @@ services:
     name: signal-forge
     plan: standard
     runtime: python
-    buildCommand: pip install uv --quiet && uv pip install --system --compile-bytecode -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT --worker-class eventlet --workers 1 app:app
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m gunicorn --bind 0.0.0.0:$PORT --worker-class eventlet --workers 1 app:app
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.0"
