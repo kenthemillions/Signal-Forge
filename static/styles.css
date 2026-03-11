@@ -454,6 +454,22 @@ ul.small li,
     font-size: 14px;
 }
 
+/* Right-side Ticker & Watchlist card */
+.ticker-right-card {
+    border-width: 1px;
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.15);
+}
+.ticker-right-card .card-header {
+    font-size: 0.9rem;
+}
+.ticker-right-card #ticker-select {
+    font-size: 1rem;
+}
+.ticker-right-card #current-price {
+    font-size: 1.5rem;
+    letter-spacing: 0.02em;
+}
+
 /* Scanner Ticker Selection */
 .scanner-ticker-grid {
     display: flex;

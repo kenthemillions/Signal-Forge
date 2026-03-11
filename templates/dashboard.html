@@ -129,42 +129,8 @@
 
     <div class="container-fluid py-3">
         <div class="row g-3">
-            <!-- LEFT COLUMN: Main Signal & Chart -->
+            <!-- LEFT COLUMN: Main Signal & Chart (no ticker box here) -->
             <div class="col-lg-8">
-                <!-- Ticker Selection -->
-                <div class="card bg-dark border-secondary mb-3">
-                    <div class="card-body py-2">
-                        <div class="row align-items-center">
-                            <div class="col-auto d-flex align-items-center gap-2">
-                                <button id="prev-ticker-btn" class="btn btn-outline-secondary btn-sm" title="Previous ticker">
-                                    <i class="bi bi-chevron-left"></i>
-                                </button>
-                                <select id="ticker-select" class="form-select form-select-lg bg-dark text-light border-secondary fw-bold">
-                                    <option value="SPY">SPY</option>
-                                </select>
-                                <button id="next-ticker-btn" class="btn btn-outline-secondary btn-sm" title="Next ticker">
-                                    <i class="bi bi-chevron-right"></i>
-                                </button>
-                                <button id="remove-ticker-btn" class="btn btn-remove-ticker" title="Remove ticker from watchlist">
-                                    <i class="bi bi-x-lg"></i>
-                                </button>
-                            </div>
-                            <div class="col-auto">
-                                <button id="add-ticker-btn" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#addTickerModal">
-                                    <i class="bi bi-plus"></i> Add
-                                </button>
-                            </div>
-                            <div class="col text-end">
-                                <span id="current-price" class="h3 mb-0 text-light">$--</span>
-                                <span id="price-change" class="h5 ms-2">--</span>
-                            </div>
-                            <div class="col-auto">
-                                <small id="last-updated" class="text-muted">Updated: --</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Mode Toggle -->
                 <div class="btn-group w-100 mb-3" role="group">
                     <button type="button" class="btn btn-outline-secondary active" id="mode-basic" onclick="switchMode('basic')">
@@ -879,8 +845,47 @@
                 </div>
             </div>
 
-            <!-- RIGHT COLUMN: Session & Feed -->
+            <!-- RIGHT COLUMN: Ticker, Session & Feed -->
             <div class="col-lg-4">
+                <!-- Ticker & Watchlist (right side) - synced, fresh Yahoo data -->
+                <div class="card bg-dark border-success mb-3 ticker-right-card">
+                    <div class="card-header py-2 d-flex justify-content-between align-items-center bg-black border-success">
+                        <span class="text-success fw-bold"><i class="bi bi-graph-up"></i> Symbol</span>
+                        <span class="badge bg-success bg-opacity-25 text-success small">Live</span>
+                    </div>
+                    <div class="card-body py-3">
+                        <div class="d-flex flex-column gap-2">
+                            <div class="d-flex align-items-center gap-1 flex-wrap">
+                                <button id="prev-ticker-btn" class="btn btn-outline-secondary btn-sm order-0" title="Previous ticker">
+                                    <i class="bi bi-chevron-left"></i>
+                                </button>
+                                <select id="ticker-select" class="form-select form-select-sm bg-dark text-light border-success fw-bold flex-grow-1 order-1" style="min-width: 5rem;">
+                                    <option value="SPY">SPY</option>
+                                </select>
+                                <button id="next-ticker-btn" class="btn btn-outline-secondary btn-sm order-2" title="Next ticker">
+                                    <i class="bi bi-chevron-right"></i>
+                                </button>
+                                <button id="remove-ticker-btn" class="btn btn-outline-danger btn-sm order-3" title="Remove from watchlist">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                <button id="add-ticker-btn" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addTickerModal">
+                                    <i class="bi bi-plus-lg"></i> Add Ticker
+                                </button>
+                                <small id="last-updated" class="text-muted">Updated: --</small>
+                            </div>
+                            <div class="border-top border-secondary pt-2 mt-1">
+                                <div class="d-flex justify-content-between align-items-baseline">
+                                    <span class="text-muted small">Price</span>
+                                    <span id="current-price" class="h4 mb-0 text-light">$--</span>
+                                </div>
+                                <div id="price-change" class="text-end small mt-0">--</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Premarket Analysis -->
                 <div class="card bg-dark border-info mb-3" id="premarket-panel">
                     <div class="card-header bg-info bg-opacity-25">
