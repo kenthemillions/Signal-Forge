@@ -260,7 +260,7 @@ class TradingSignalsApp {
                 badge.textContent = '—';
                 badge.className = 'badge bg-secondary';
             }
-            if (textEl && (textEl.textContent === 'Loading market status...' || textEl.textContent === 'Connecting…')) {
+            if (textEl && (textEl.textContent === 'Loading market status...' || textEl.textContent === 'Connecting…' || textEl.textContent === 'Loading…')) {
                 textEl.textContent = 'Server may be waking up. Click Refresh in a moment.';
                 const iconEl = document.getElementById('session-icon');
                 if (iconEl) iconEl.textContent = '📡';
@@ -1519,7 +1519,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         let tickers = [];
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 20000);
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
             const response = await fetch('/api/tickers', { signal: controller.signal });
             clearTimeout(timeoutId);
             if (!response.ok) throw new Error('Tickers API ' + response.status);
@@ -1555,6 +1555,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         this.renderBodyScannerGrid(tickers);
         this.updateNavBadge();
         this.updateAllScanCounts();
+        this.clearLoadingState();
     }
     
     renderBodyScannerGrid(tickers) {
@@ -2193,6 +2194,16 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const addTickerSubmit = document.getElementById('add-ticker-submit');
         if (addTickerSubmit) addTickerSubmit.addEventListener('click', () => this.addTicker());
         
+        const addTickerModalEl = document.getElementById('addTickerModal');
+        if (addTickerModalEl && typeof bootstrap !== 'undefined') {
+            addTickerModalEl.addEventListener('show.bs.modal', () => {
+                const btn = document.getElementById('add-ticker-submit');
+                if (btn) { btn.disabled = false; btn.textContent = 'Add'; }
+                const input = document.getElementById('new-ticker');
+                if (input) input.value = '';
+            });
+        }
+        
         const newTickerInput = document.getElementById('new-ticker');
         if (newTickerInput) {
             newTickerInput.addEventListener('keypress', (e) => {
@@ -2423,7 +2434,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const badge = document.getElementById('market-status');
         const textEl = document.getElementById('session-text');
         try {
-            const response = await fetch('/api/market-status');
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 12000);
+            const response = await fetch('/api/market-status', { signal: controller.signal });
+            clearTimeout(timeoutId);
             const status = await response.json();
             if (!status || !status.current_session) throw new Error('No status');
             if (badge) {
@@ -2441,7 +2455,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.updateSessionBanner(status);
         } catch (error) {
             if (badge) { badge.textContent = '—'; badge.className = 'badge bg-secondary'; }
-            if (textEl) textEl.textContent = 'Data loaded. Market status will update when server responds.';
+            if (textEl) textEl.textContent = 'Data loaded. Click Refresh when server is ready.';
             this.updateSessionBanner(null);
         }
     }
@@ -2599,7 +2613,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             badge.textContent = '—';
             badge.className = 'badge bg-secondary';
         }
-        if (textEl && (textEl.textContent === 'Loading market status...' || textEl.textContent === 'Connecting…')) {
+        if (textEl && (textEl.textContent === 'Loading market status...' || textEl.textContent === 'Connecting…' || textEl.textContent === 'Loading…')) {
             textEl.textContent = 'Data loaded. Click Refresh for live status.';
             const iconEl = document.getElementById('session-icon');
             if (iconEl) iconEl.textContent = '📡';
@@ -2938,7 +2952,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const lastUpdatedEl = document.getElementById('last-updated');
         try {
             const cacheBuster = Date.now();
-            const response = await fetch(`/api/trade-recommendation/${requestedSymbol}?interval=${this.currentInterval}&_t=${cacheBuster}`);
+            const ac = new AbortController();
+            const t = setTimeout(() => ac.abort(), 15000);
+            const response = await fetch(`/api/trade-recommendation/${requestedSymbol}?interval=${this.currentInterval}&_t=${cacheBuster}`, { signal: ac.signal });
+            clearTimeout(t);
             const data = await response.json();
             
             if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
@@ -2989,7 +3006,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
             
         } catch (error) {
-            console.error('Error loading trade recommendation:', error);
+            console.warn('Trade recommendation load failed:', error);
+            if (currentPriceEl) currentPriceEl.innerHTML = '<span class="text-muted">Click Refresh for price</span>';
+            if (priceChangeEl) priceChangeEl.textContent = '—';
+            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
         }
     }
     
@@ -3508,7 +3528,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const requestedSymbol = (this.currentTicker || '').toUpperCase();
         try {
             const cacheBuster = Date.now();
-            const response = await fetch(`/api/market-data/${requestedSymbol}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
+            const ac = new AbortController();
+            const t = setTimeout(() => ac.abort(), 15000);
+            const response = await fetch(`/api/market-data/${requestedSymbol}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`, { signal: ac.signal });
+            clearTimeout(t);
             const data = await response.json();
             
             if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
@@ -3519,7 +3542,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 return;
             }
             
-            const indicatorsRes = await fetch(`/api/indicators/${requestedSymbol}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
+            const ac2 = new AbortController();
+            const t2 = setTimeout(() => ac2.abort(), 15000);
+            const indicatorsRes = await fetch(`/api/indicators/${requestedSymbol}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`, { signal: ac2.signal });
+            clearTimeout(t2);
             const indicators = await indicatorsRes.json();
             if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
             
@@ -3862,11 +3888,15 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         }
         
         try {
+            const ac = new AbortController();
+            const timeoutId = setTimeout(() => ac.abort(), 15000);
             const res = await fetch('/api/tickers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol: raw })
+                body: JSON.stringify({ symbol: raw }),
+                signal: ac.signal
             });
+            clearTimeout(timeoutId);
             const data = await res.json().catch(() => ({}));
             
             if (!res.ok) {
@@ -3875,6 +3905,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Add'; }
                 return;
             }
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Add'; }
             
             input.value = '';
             
@@ -3899,7 +3930,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (modal) modal.hide();
         } catch (error) {
             console.error('Error adding ticker:', error);
-            this.showTickerToast('Network error. Check connection and try again.', 'danger');
+            this.showTickerToast('Network error or timeout. Try again or click Refresh.', 'danger');
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addTickerModal'));
+            if (modal) modal.hide();
         } finally {
             if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Add'; }
         }
