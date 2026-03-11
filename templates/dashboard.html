@@ -857,36 +857,14 @@
                         <span class="badge bg-success bg-opacity-25 text-success small">Live</span>
                     </div>
                     <div class="card-body py-3">
-                        <!-- DEBUG: visible trace for quote/price card (remove after root cause) -->
-                        <div id="quote-debug-box" class="small mb-2 p-2 rounded border border-warning bg-dark" style="font-family: monospace; font-size: 0.7rem;">
-                            <div class="text-warning fw-bold mb-1">Quote debug</div>
-                            <div>DOM ready: <span id="debug-dom-ready">--</span></div>
-                            <div>init started: <span id="debug-init-started">no</span></div>
-                            <div>symbol element found: <span id="debug-symbol-el-found">--</span></div>
-                            <div>symbol selector used: <span id="debug-symbol-selector">--</span></div>
-                            <div>raw symbol from DOM: <span id="debug-raw-symbol">--</span></div>
-                            <div>currentTicker assigned: <span id="debug-current-ticker">--</span></div>
-                            <div>refreshData invoked: <span id="debug-refresh-called">no</span></div>
-                            <div>loadTickerCardQuote called: <span id="debug-quote-called">no</span></div>
-                            <div>quote request started: <span id="debug-request-started">no</span></div>
-                            <div>quote URL: <span id="debug-quote-url">--</span></div>
-                            <div>quote status: <span id="debug-quote-status">--</span></div>
-                            <div>quote response: <span id="debug-quote-body">--</span></div>
-                            <div>DOM update success: <span id="debug-dom-ok">no</span></div>
-                            <div>last to touch price card: <span id="debug-last-touch">--</span></div>
-                        </div>
-                        <div id="add-ticker-debug-box" class="small mb-2 p-2 rounded border border-info bg-dark" style="font-family: monospace; font-size: 0.7rem;">
-                            <div class="text-info fw-bold mb-1">Add Ticker debug</div>
-                            <div>add button clicked: <span id="add-debug-clicked">no</span></div>
-                            <div>raw input value: <span id="add-debug-raw">--</span></div>
-                            <div>symbol normalized to: <span id="add-debug-normalized">--</span></div>
-                            <div>symbol added to dropdown: <span id="add-debug-added-to-list">--</span></div>
-                            <div>dropdown selected value after add: <span id="add-debug-select-value">--</span></div>
-                            <div>currentTicker after add: <span id="add-debug-current-ticker">--</span></div>
-                            <div>quote URL requested after add: <span id="add-debug-quote-url">--</span></div>
-                            <div>quote status after add: <span id="add-debug-quote-status">--</span></div>
-                            <div>quote body after add: <span id="add-debug-quote-body">--</span></div>
-                            <div>DOM update success after add: <span id="add-debug-dom-ok">--</span></div>
+                        <div id="simple-debug-box" class="small mb-2 p-2 rounded border border-secondary bg-dark" style="font-family: monospace; font-size: 0.7rem;">
+                            <div>initialized: <span id="simple-debug-initialized">no</span></div>
+                            <div>currentTicker: <span id="simple-debug-ticker">--</span></div>
+                            <div>quote URL: <span id="simple-debug-url">--</span></div>
+                            <div>quote status: <span id="simple-debug-status">--</span></div>
+                            <div>quote symbol returned: <span id="simple-debug-symbol">--</span></div>
+                            <div>price rendered: <span id="simple-debug-price">--</span></div>
+                            <div>last error: <span id="simple-debug-error">none</span></div>
                         </div>
                         <div class="d-flex flex-column gap-2">
                             <div class="d-flex align-items-center gap-1 flex-wrap">
@@ -1596,8 +1574,7 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- ENTRY SCRIPT: path-based cache bust so production cannot serve stale app.js -->
-    <script src="/static/app.bootfix2.js"></script>
+    <script src="/static/dashboard-simple.js"></script>
     <script>
         let currentMode = 'basic';
         let institutionalTimeframe = '5m';
