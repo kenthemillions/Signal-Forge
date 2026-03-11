@@ -115,7 +115,7 @@
             <div class="row align-items-center justify-content-center g-2">
                 <div class="col-auto">
                     <span id="session-icon" class="me-1">⏳</span>
-                    <span id="session-text" class="fw-bold">Connecting…</span>
+                    <span id="session-text" class="fw-bold">Loading…</span>
                 </div>
                 <div class="col-auto">
                     <span class="badge bg-secondary" id="next-action-badge">--</span>
@@ -873,14 +873,17 @@
                                 <button id="add-ticker-btn" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addTickerModal">
                                     <i class="bi bi-plus-lg"></i> Add Ticker
                                 </button>
-                                <small id="last-updated" class="text-muted">Updated: --</small>
+                                <button type="button" id="ticker-card-refresh" class="btn btn-outline-success btn-sm" title="Load live price and data for selected symbol">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                                <small id="last-updated" class="text-muted">Updated: —</small>
                             </div>
                             <div class="border-top border-secondary pt-2 mt-1">
                                 <div class="d-flex justify-content-between align-items-baseline">
                                     <span class="text-muted small">Price</span>
-                                    <span id="current-price" class="h4 mb-0 text-light">$--</span>
+                                    <span id="current-price" class="h4 mb-0 text-light"><span class="text-muted small">Refresh for live data</span></span>
                                 </div>
-                                <div id="price-change" class="text-end small mt-0">--</div>
+                                <div id="price-change" class="text-end small mt-0 text-muted">Click Refresh for current price</div>
                             </div>
                         </div>
                     </div>

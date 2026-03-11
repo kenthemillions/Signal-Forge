@@ -227,6 +227,7 @@ class TradingSignalsApp {
         
         const sessionText = document.getElementById('session-text');
         if (sessionText) sessionText.textContent = 'Loading…';
+        setTimeout(() => this.clearLoadingState(), 1500);
         
         try {
             await this.loadTickers();
@@ -279,8 +280,8 @@ class TradingSignalsApp {
                 badge.textContent = '—';
                 badge.className = 'badge bg-secondary';
             }
-            if (textEl && (textEl.textContent === 'Loading market status...' || textEl.textContent === 'Connecting…' || textEl.textContent === 'Loading…')) {
-                textEl.textContent = 'Server may be waking up. Click Refresh in a moment.';
+        if (textEl && /Loading|Connecting/.test(textEl.textContent)) {
+            textEl.textContent = 'Server may be waking up. Click Refresh in a moment.';
                 const iconEl = document.getElementById('session-icon');
                 if (iconEl) iconEl.textContent = '📡';
             }
@@ -2213,6 +2214,11 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         
         const refreshBtn = document.getElementById('refresh-signal');
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.refreshData());
+        const tickerCardRefresh = document.getElementById('ticker-card-refresh');
+        if (tickerCardRefresh) tickerCardRefresh.addEventListener('click', () => {
+            this.showTickerLoading(true);
+            this.refreshData();
+        });
         
         const audioToggle = document.getElementById('audio-toggle');
         if (audioToggle) {
@@ -2656,7 +2662,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             badge.textContent = '—';
             badge.className = 'badge bg-secondary';
         }
-        if (textEl && (textEl.textContent === 'Loading market status...' || textEl.textContent === 'Connecting…' || textEl.textContent === 'Loading…')) {
+        if (textEl && /Loading|Connecting/.test(textEl.textContent)) {
             textEl.textContent = 'Data loaded. Click Refresh for live status.';
             const iconEl = document.getElementById('session-icon');
             if (iconEl) iconEl.textContent = '📡';
@@ -2665,10 +2671,12 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             premarketTrend.textContent = '—';
             premarketTrend.className = 'h5 text-muted';
         }
-        if (currentPriceEl && (currentPriceEl.textContent === '$--' || currentPriceEl.textContent.includes('--'))) {
-            currentPriceEl.innerHTML = '<span class="text-muted">Click Refresh for live price</span>';
+        if (currentPriceEl) {
+            const t = currentPriceEl.textContent.trim();
+            const isPlaceholder = !t || t === '$--' || t.includes('--') || t.includes('Refresh for live') || t.includes('Loading');
+            if (isPlaceholder) currentPriceEl.innerHTML = '<span class="text-muted small">Click Refresh for live price</span>';
         }
-        if (lastUpdatedEl && lastUpdatedEl.textContent === 'Updated: --') {
+        if (lastUpdatedEl && (lastUpdatedEl.textContent === 'Updated: --' || lastUpdatedEl.textContent === 'Updated: —')) {
             lastUpdatedEl.textContent = 'Updated: —';
         }
     }
