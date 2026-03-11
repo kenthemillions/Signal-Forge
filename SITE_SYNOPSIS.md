@@ -29,7 +29,7 @@ Everything is **ticker-coherent**: when you pick SPY (or any symbol), charts, si
 - **How it works:**
   - Frontend calls **Refresh** or auto-refresh (every 5–8 seconds) → `loadTradeRecommendation()`.
   - That calls **`/api/trade-recommendation/<SYMBOL>?interval=5m`** (or whatever timeframe you have selected).
-  - Backend uses **data_fetcher** (Yahoo or Alpaca), **indicator_engine**, and **strategy_orchestrator** to compute a signal (BUY/SELL/WAIT/PREPARE/WATCH, strength, reasons, entry/stop/target).
+  - Backend uses **data_fetcher** (Yahoo Finance), **indicator_engine**, and **strategy_orchestrator** to compute a signal (BUY/SELL/WAIT/PREPARE/WATCH, strength, reasons, entry/stop/target).
   - Response includes `main_signal`, `summary`, `confidence_pct`, `edge_direction` (CALL/PUT/FLAT), etc.
   - **`updateTrafficLight(data.main_signal)`** turns on:
     - **Green** = BUY or STRONG BUY  
@@ -44,7 +44,7 @@ Everything is **ticker-coherent**: when you pick SPY (or any symbol), charts, si
 - **How it works:**
   - When you change **ticker** or **timeframe** (1m, 2m, 5m, 15m, 1h, 4h), `loadChartData()` runs.
   - It requests **`/api/market-data/<SYMBOL>?period=…&interval=…`** and **`/api/indicators/<SYMBOL>?period=…&interval=…`**.
-  - Backend uses **data_fetcher.get_stock_data(symbol, period, interval)** (Yahoo or Alpaca).
+  - Backend uses **data_fetcher.get_stock_data(symbol, period, interval)** (Yahoo Finance).
   - Frontend only applies the response if the **selected ticker** still matches (`requestedSymbol === currentTicker`), so you never see another ticker’s data.
 - **Checked/fixed:** Cache no longer cleared on every request (so charts load faster). All six timeframes use correct period/interval; 2m added to multi-timeframe API.
 
@@ -62,7 +62,7 @@ Everything is **ticker-coherent**: when you pick SPY (or any symbol), charts, si
 - **What it is:** Institutional mode panel with state (BUY, SELL, PREPARE, WAIT), confidence, regime, location, zone, confirmations, reasons, and entry/stop/target prices.
 - **How it works:**
   - **`/api/institutional/<SYMBOL>?timeframe=5m|15m|1h|4h`** is called when you’re in Institutional mode (and on ticker change).
-  - **Fixed:** It now uses **data_fetcher.get_stock_data(symbol, period, interval)** and builds a pandas DataFrame for **institutional_engine.analyze()**, so it uses the same data as the rest of the app (and Alpaca when configured). For 4h, 1h bars are aggregated to 4h.
+  - **Fixed:** It uses **data_fetcher.get_stock_data(symbol, period, interval)** and builds a pandas DataFrame for **institutional_engine.analyze()**, same data as the rest of the app (Yahoo Finance). For 4h, 1h bars are aggregated to 4h.
 - **Checked/fixed:** No more raw yfinance here; same ticker, same data source, correct timeframes.
 
 ### 5. Scanners (Lottery Hour, Last-Hour, Market Open, Premarket)
@@ -84,12 +84,11 @@ Everything is **ticker-coherent**: when you pick SPY (or any symbol), charts, si
   - DeepSeek is used only when the user has set an API key in Coach → AI Settings and turned on “Enable AI responses”; the key is stored in the browser and sent only to the coach endpoint.
 - **Checked/fixed:** Coach no longer uses raw yfinance; it uses data_fetcher + indicator_engine. DeepSeek context uses the same indicator keys (e.g. ema_13, volume.spike_ratio). Placeholder updates to current ticker (e.g. “Is this a good buy for SPY calls?”).
 
-### 7. Data Source: Alpaca vs Yahoo
+### 7. Data Source: Yahoo Finance Only
 
-- **What it is:** Market data (OHLCV, current price, premarket/after-hours) can come from **Alpaca** or **Yahoo (yfinance)**.
+- **What it is:** All market data (OHLCV, current price, premarket/after-hours) comes from **Yahoo Finance (yfinance)**.
 - **How it works:**
-  - **data_fetcher** checks **alpaca_configured()** (ALPACA_API_KEY + ALPACA_SECRET_KEY set). If yes, **get_stock_data** and **get_quote** use **alpaca_provider** (bars + latest quote). Otherwise it uses **yfinance** with **history(prepost=True)**, **fast_info**, and **info** for current/pre/post price and session.
-- **Checked/fixed:** Alpaca was already connected; no new “connection” code. If you don’t set Alpaca keys, Yahoo is used everywhere. Same data path is used for charts, trade recommendation, institutional, coach, and scanners.
+  - **data_fetcher** uses **yfinance** only: **history(prepost=True)**, **fast_info**, and **info** for current/pre/post price and session. Same data path for charts, trade recommendation, institutional, coach, and scanners.
 
 ### 8. Ticker Consistency Everywhere
 
@@ -123,11 +122,11 @@ Everything is **ticker-coherent**: when you pick SPY (or any symbol), charts, si
 1. **Push** your latest code (including the above fixes and `requests` in requirements) to GitHub.
 2. In **Render** → your **signal-forge** web service:
    - **Manual Deploy** → **Deploy latest commit**.
-   - **Environment:** Set **SESSION_SECRET** (required). Optionally set **ALPACA_API_KEY** and **ALPACA_SECRET_KEY** for Alpaca.
+   - **Environment:** Set **SESSION_SECRET** (required).
 3. After deploy (2–5 min): open **/health** (should be healthy), then **/app** (login → dashboard). Do a **hard refresh** (Ctrl+Shift+R / Cmd+Shift+R) so the browser loads the latest JS.
 4. If the dashboard is slow or “Connecting…”, wait for cold start then click **Refresh**.
 
-Details and optional steps (e.g. Alpaca, DeepSeek) are in **DEPLOY_NOW.md**.
+Details and optional steps (e.g. DeepSeek) are in **DEPLOY_NOW.md**.
 
 ---
 

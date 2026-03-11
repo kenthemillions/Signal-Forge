@@ -24,10 +24,6 @@ class Config:
     YFINANCE_ENABLED = True
     POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY')
     ALPHA_VANTAGE_KEY = os.environ.get('ALPHA_VANTAGE_KEY')
-    # Alpaca: set ALPACA_API_KEY + ALPACA_SECRET_KEY to use Alpaca for live/accurate bars & quotes
-    ALPACA_API_KEY = os.environ.get('ALPACA_API_KEY') or os.environ.get('APCA_API_KEY_ID')
-    ALPACA_SECRET_KEY = os.environ.get('ALPACA_SECRET_KEY') or os.environ.get('APCA_API_SECRET_KEY')
-    ALPACA_BASE_URL = os.environ.get('ALPACA_BASE_URL')  # optional, for data API override
     
     CACHE_TYPE = os.environ.get('CACHE_TYPE', 'simple')
     CACHE_DEFAULT_TIMEOUT = int(os.environ.get('CACHE_TIMEOUT', 60))

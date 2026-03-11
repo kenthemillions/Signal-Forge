@@ -88,6 +88,8 @@ def _init_db():
 
 
 _init_db()
+data_fetcher.clear_cache()
+logger.info('Data fetcher cache cleared; using Yahoo Finance only.')
 
 def background_price_updater():
     """Background task to push real-time price updates to connected clients."""
@@ -346,7 +348,7 @@ def _aggregate_df_to_4h(df):
 
 @app.route('/api/institutional/<symbol>')
 def get_institutional_signal(symbol):
-    """Get institutional mode analysis for a symbol. Uses same data source as dashboard (data_fetcher/Alpaca or Yahoo)."""
+    """Get institutional mode analysis for a symbol. Uses same data source as dashboard (data_fetcher, Yahoo Finance)."""
     try:
         symbol = symbol.upper()
         timeframe = request.args.get('timeframe', '5m')

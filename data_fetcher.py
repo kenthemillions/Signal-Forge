@@ -1,6 +1,6 @@
 """
 Market Data Fetcher Module
-Uses Alpaca when ALPACA_API_KEY + ALPACA_SECRET_KEY are set; otherwise yfinance.
+Uses Yahoo Finance (yfinance) only for OHLCV, quotes, and session data.
 """
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -8,14 +8,6 @@ from typing import Dict, Optional, List
 import pandas as pd
 import numpy as np
 
-def _use_alpaca():
-    try:
-        from alpaca_provider import alpaca_configured
-        return alpaca_configured()
-    except ImportError:
-        return False  # alpaca-py not installed
-    except Exception:
-        return False
 
 class MarketDataFetcher:
     """Fetches market data from Yahoo Finance"""
@@ -77,18 +69,6 @@ class MarketDataFetcher:
         if cache_key in self._cache:
             if datetime.now() < self._cache_expiry.get(cache_key, datetime.min):
                 return self._cache[cache_key]
-        
-        if _use_alpaca():
-            try:
-                from alpaca_provider import get_stock_data_alpaca
-                result = get_stock_data_alpaca(symbol, period=period, interval=interval)
-                if 'error' not in result:
-                    self._cache[cache_key] = result
-                    self._cache_expiry[cache_key] = datetime.now() + timedelta(seconds=self._get_cache_duration())
-                return result
-            except Exception as e:
-                return {'error': str(e), 'symbol': symbol}
-        
         try:
             ticker = yf.Ticker(symbol)
             df = ticker.history(period=period, interval=interval, prepost=True)
@@ -245,13 +225,7 @@ class MarketDataFetcher:
         return self._info_cache.get(symbol, {})
     
     def get_quote(self, symbol: str) -> Dict:
-        """Get current quote for a symbol"""
-        if _use_alpaca():
-            try:
-                from alpaca_provider import get_quote_alpaca
-                return get_quote_alpaca(symbol)
-            except Exception as e:
-                return {'error': str(e), 'symbol': symbol}
+        """Get current quote for a symbol (Yahoo Finance)"""
         try:
             ticker = yf.Ticker(symbol)
             info = {}
