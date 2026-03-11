@@ -1,6 +1,6 @@
 # Get Signal Forge Live on Render
 
-Code is pushed to GitHub (commit: deploy-ready). To get https://signal-forge-3435.onrender.com/app live:
+**Fresh deployments:** Push to GitHub (see step below), then on Render click **Manual Deploy → Deploy latest commit** so the site builds and runs the latest code. If Auto-Deploy is on for `main`, each push to GitHub starts a new deploy automatically.
 
 ## 1. Trigger a new deploy on Render
 
@@ -46,3 +46,17 @@ If the dashboard stays on “Connecting…” or “—”, wait for cold start 
 **Ticker mismatch (e.g. SLV selected but SPY numbers):** The app now ignores late API responses so the selected ticker’s data is not overwritten. Using Alpaca (step 4) also improves data consistency on Render.
 
 **Full site breakdown:** See **SITE_SYNOPSIS.md** for how each area works (traffic light, charts, Fib/ATR, institutional, scanners, coach) and what was fixed.
+
+---
+
+## 6. What was fixed (ensure these are deployed)
+
+- **Data & prices:** data_fetcher uses history + fast_info + info; correct current/premarket/after-hours and session.
+- **Charts:** Cache kept; 1m, 2m, 5m, 15m, 1h, 4h; ticker consistency (ignores late responses).
+- **Traffic light:** Green=BUY, Red=SELL, Yellow=WAIT/PREPARE; driven by trade-recommendation API.
+- **Premarket:** `/api/premarket-analysis` uses data_fetcher; frontend shows — on error.
+- **Scanners:** Lottery, last-hour, market-open, premarket use data_fetcher and current_price; empty watchlist message; ET timezone for lottery window.
+- **Institutional:** `/api/institutional` uses data_fetcher + DataFrame; 4h aggregation.
+- **Coach:** Uses data_fetcher + indicator_engine; DeepSeek context; placeholder = current ticker; **requests** in requirements.
+- **Fib/ATR:** Exact numbers (2 decimals); symbol in “Best retracement (SYMBOL)”.
+- **Alpaca:** Used when ALPACA_API_KEY + ALPACA_SECRET_KEY are set; otherwise Yahoo.
