@@ -157,26 +157,38 @@ class MarketDataFetcher:
                 premarket_price = intraday_last if intraday_last > 0 else fast_price
             if session == 'afterhours' and (postmarket_price is None or postmarket_price <= 0):
                 postmarket_price = intraday_last if intraday_last > 0 else fast_price
-            
+
+            price_source = 'unknown'
             if premarket_price and premarket_price > 0 and session == 'premarket':
-                current_price = max(premarket_price, ask_price) if ask_price > 0 else premarket_price
-                change = current_price - previous_close
-                change_percent = (change / previous_close) * 100 if previous_close else 0
+                current_price = float(premarket_price)
+                price_source = 'preMarketPrice'
+                change = current_price - (float(previous_close or 0))
+                change_percent = (change / float(previous_close or 1)) * 100 if previous_close else 0
             elif postmarket_price and postmarket_price > 0 and session == 'afterhours':
-                current_price = max(postmarket_price, ask_price) if ask_price > 0 else postmarket_price
-                change = current_price - previous_close
-                change_percent = (change / previous_close) * 100 if previous_close else 0
+                current_price = float(postmarket_price)
+                price_source = 'postMarketPrice'
+                change = current_price - (float(previous_close or 0))
+                change_percent = (change / float(previous_close or 1)) * 100 if previous_close else 0
             else:
-                current_price = regular_price or fast_price or intraday_last
-                if current_price is None or current_price <= 0:
-                    current_price = intraday_last
-                change = current_price - previous_close
-                change_percent = (change / previous_close) * 100 if previous_close and previous_close != 0 else 0
-            
+                # Regular session: prefer Yahoo regularMarketPrice so quote matches official last price
+                api_f = float(api_price) if api_price else 0
+                if api_f and api_f > 0:
+                    current_price = api_f
+                    price_source = 'regularMarketPrice'
+                elif fast_price and float(fast_price) > 0:
+                    current_price = float(fast_price)
+                    price_source = 'fast_info.last_price'
+                else:
+                    current_price = intraday_last if intraday_last and intraday_last > 0 else api_f
+                    price_source = 'history.Close.last' if (intraday_last and intraday_last > 0) else 'fallback'
+                change = current_price - (float(previous_close or 0))
+                change_percent = (change / float(previous_close or 1)) * 100 if previous_close else 0
+
             change = round(float(change), 2)
             change_percent = round(float(change_percent), 2)
-            regular_close = regular_price if regular_price else current_price
-            
+            previous_close_f = float(previous_close or 0)
+            regular_close = float(api_price or current_price) if api_price else current_price
+
             result = {
                 'symbol': symbol,
                 'timestamps': [ts.isoformat() for ts in df.index.tolist()],
@@ -188,13 +200,14 @@ class MarketDataFetcher:
                 'current_price': float(round(current_price, 2)),
                 'regular_close': float(round(regular_close, 2)),
                 'session': session,
+                'price_source': price_source,
+                'previous_close': float(round(previous_close_f, 2)),
                 'open_price': float(round(df['Open'].iloc[0], 2)) if len(df) > 0 else 0,
                 'high': float(round(df['High'].max(), 2)) if len(df) > 0 else 0,
                 'low': float(round(df['Low'].min(), 2)) if len(df) > 0 else 0,
                 'volume': int(df['Volume'].sum()) if len(df) > 0 else 0,
                 'change': change,
                 'change_percent': change_percent,
-                'previous_close': float(round(float(previous_close or 0), 2)),
                 'market_cap': info.get('marketCap', 0),
                 'pe_ratio': info.get('trailingPE', 0),
                 'last_updated': datetime.now().isoformat()

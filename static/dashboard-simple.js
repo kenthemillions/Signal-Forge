@@ -79,10 +79,14 @@
                 changeEl.innerHTML = "<span class=\"" + (change >= 0 ? "text-success" : "text-danger") + "\">" + sign + change.toFixed(2) + " (" + pctStr + ")</span>";
             }
             if (updatedEl) updatedEl.textContent = "Updated: " + new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            var qd = data.quote_debug || {};
             setDebug({
                 "simple-debug-symbol": (data.symbol || sym),
                 "simple-debug-price": String(price.toFixed(2)),
-                "simple-debug-error": "none"
+                "simple-debug-error": "none",
+                "simple-debug-price-source": qd.price_source || "--",
+                "simple-debug-prev-close": qd.previous_close != null ? String(qd.previous_close) : "--",
+                "simple-debug-session": qd.session || "--"
             });
         } catch (e) {
             var msg = (e && e.message) ? e.message : String(e);
@@ -192,7 +196,7 @@
             var data = null;
             try { data = await res.json(); } catch (e) {}
             if (!data) {
-                setDebug({ "module-analysis-result": "Invalid JSON" });
+                setDebug({ "module-analysis-result": "Invalid JSON", "module-analysis-indicators": "--", "module-analysis-bullish": "--", "module-analysis-bearish": "--", "module-analysis-total": "--" });
                 if (signalText) signalText.textContent = "WAIT";
                 if (signalSummary) signalSummary.textContent = "Analysis request failed (invalid response).";
                 if (panel) { panel.classList.remove("signal-buy", "signal-sell"); panel.classList.add("signal-wait"); }
@@ -200,7 +204,7 @@
                 return;
             }
             if (data.error) {
-                setDebug({ "module-analysis-result": "error: " + data.error });
+                setDebug({ "module-analysis-result": "error: " + data.error, "module-analysis-indicators": "--", "module-analysis-bullish": "--", "module-analysis-bearish": "--", "module-analysis-total": "--" });
                 if (signalText) signalText.textContent = "WAIT";
                 if (signalSummary) signalSummary.textContent = "Analysis failed: " + data.error;
                 if (panel) { panel.classList.remove("signal-buy", "signal-sell"); panel.classList.add("signal-wait"); }
@@ -209,7 +213,17 @@
             }
             var mainSignal = (data.main_signal || "WAIT").toString();
             var summary = data.summary || "No summary.";
-            setDebug({ "module-analysis-result": "ok " + mainSignal });
+            var indList = (data.evaluated_indicators || []).join(", ") || "--";
+            var bull = data.bullish_count != null ? String(data.bullish_count) : "--";
+            var bear = data.bearish_count != null ? String(data.bearish_count) : "--";
+            var tot = data.total_count != null ? String(data.total_count) : "--";
+            setDebug({
+                "module-analysis-result": "ok " + mainSignal,
+                "module-analysis-indicators": indList,
+                "module-analysis-bullish": bull,
+                "module-analysis-bearish": bear,
+                "module-analysis-total": tot
+            });
             if (signalText) signalText.textContent = mainSignal;
             if (signalSummary) signalSummary.textContent = summary;
             if (panel) {
@@ -225,7 +239,7 @@
             }
         } catch (e) {
             var msg = (e && e.message) ? e.message : String(e);
-            setDebug({ "module-analysis-result": "error: " + msg });
+            setDebug({ "module-analysis-result": "error: " + msg, "module-analysis-indicators": "--", "module-analysis-bullish": "--", "module-analysis-bearish": "--", "module-analysis-total": "--" });
             if (signalText) signalText.textContent = "WAIT";
             if (signalSummary) signalSummary.textContent = "Analysis failed: " + msg;
             if (panel) { panel.classList.remove("signal-buy", "signal-sell"); panel.classList.add("signal-wait"); }

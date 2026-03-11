@@ -71,11 +71,22 @@ def _normalized_quote(symbol: str):
         if price is None or (isinstance(price, (int, float)) and price <= 0):
             logger.warning('market_data symbol=%s no valid current_price', symbol)
             return {'error': 'No price', 'symbol': symbol}
+        prev = data.get('previous_close') or 0
+        ch = data.get('change', 0)
+        pct = data.get('change_percent', 0)
         out = {
             'symbol': symbol,
             'price': round(float(price), 2),
-            'change': round(float(data.get('change', 0)), 2),
-            'percentChange': round(float(data.get('change_percent', 0)), 2),
+            'change': round(float(ch), 2),
+            'percentChange': round(float(pct), 2),
+            'quote_debug': {
+                'symbol': symbol,
+                'price_source': data.get('price_source', '--'),
+                'previous_close': round(float(prev), 2),
+                'computed_change': round(float(price) - float(prev), 2),
+                'computed_percentChange': round((float(price) - float(prev)) / float(prev) * 100, 2) if prev else 0,
+                'session': data.get('session', '--'),
+            }
         }
         logger.info('market_data symbol=%s status=ok price=%s', symbol, out['price'])
         return out
@@ -1144,59 +1155,64 @@ def get_trade_recommendation(symbol):
         bullish_count = 0
         bearish_count = 0
         reasons = []
-    
+        evaluated_indicators = []
+
         rsi = indicators.get('rsi', {})
         rsi_val = rsi.get('value', 50)
+        evaluated_indicators.append('RSI')
         if rsi_val < 30:
            bullish_count += 1
            reasons.append(f"RSI oversold at {rsi_val:.0f}")
         elif rsi_val > 70:
            bearish_count += 1
            reasons.append(f"RSI overbought at {rsi_val:.0f}")
-    
+
         macd = indicators.get('macd', {})
+        evaluated_indicators.append('MACD')
         if macd.get('signal_type') in ['BULLISH', 'BULLISH_CROSS']:
            bullish_count += 1
            reasons.append("MACD bullish crossover")
         elif macd.get('signal_type') in ['BEARISH', 'BEARISH_CROSS']:
            bearish_count += 1
            reasons.append("MACD bearish crossover")
-    
+
         vwap = indicators.get('vwap', {})
+        evaluated_indicators.append('VWAP')
         if vwap.get('above_vwap'):
            bullish_count += 1
            reasons.append("Price above VWAP")
         else:
            bearish_count += 1
            reasons.append("Price below VWAP")
-    
+
         trend = indicators.get('trend', {})
+        evaluated_indicators.append('Trend')
         if trend.get('direction') == 'BULLISH':
            bullish_count += 1
            reasons.append(f"Trend bullish ({trend.get('strength', 0)}%)")
         elif trend.get('direction') == 'BEARISH':
            bearish_count += 1
            reasons.append(f"Trend bearish ({trend.get('strength', 0)}%)")
-    
-    
-    
+
         change_pct = data.get('change_percent', 0)
-        is_extended_hours = market_status.get('current_session') in ['PRE_MARKET', 'AFTER_HOURS']
-        momentum_weight = 2 if is_extended_hours else 1  
-    
+        evaluated_indicators.append('Momentum')
         if change_pct >= 0.5:
-           bullish_count += momentum_weight + 1  
+           bullish_count += 1
            reasons.append(f"STRONG price momentum UP (+{change_pct:.2f}%)")
         elif change_pct >= 0.2:
-           bullish_count += momentum_weight  
+           bullish_count += 1
            reasons.append(f"Price momentum UP (+{change_pct:.2f}%)")
         elif change_pct <= -0.5:
-           bearish_count += momentum_weight + 1
+           bearish_count += 1
            reasons.append(f"STRONG price momentum DOWN ({change_pct:.2f}%)")
         elif change_pct <= -0.2:
-           bearish_count += momentum_weight
+           bearish_count += 1
            reasons.append(f"Price momentum DOWN ({change_pct:.2f}%)")
-    
+
+        total_count = len(evaluated_indicators)
+        bullish_count = min(bullish_count, total_count)
+        bearish_count = min(bearish_count, total_count)
+
         vol = indicators.get('volume', {})
         vol_ratio = vol.get('spike_ratio', 1)
         if vol.get('spike'):
@@ -1274,17 +1290,17 @@ def get_trade_recommendation(symbol):
     
         summary = ""
         if main_signal == 'STRONG BUY':
-           summary = f"{bullish_count} of 5 indicators bullish + volume surge! High conviction call setup."
+           summary = f"{bullish_count} of {total_count} indicators bullish + volume surge! High conviction call setup."
         elif main_signal == 'BUY':
-           summary = f"{bullish_count} of 5 indicators bullish. Good setup for calls."
+           summary = f"{bullish_count} of {total_count} indicators bullish. Good setup for calls."
         elif main_signal == 'STRONG SELL':
-           summary = f"{bearish_count} of 5 indicators bearish + volume surge! High conviction put setup."
+           summary = f"{bearish_count} of {total_count} indicators bearish + volume surge! High conviction put setup."
         elif main_signal == 'SELL':
-           summary = f"{bearish_count} of 5 indicators bearish. Good setup for puts."
+           summary = f"{bearish_count} of {total_count} indicators bearish. Good setup for puts."
         elif main_signal == 'PREPARE':
-           summary = guardrail_reason if guardrail_reason else f"Bias forming ({max(bullish_count, bearish_count)} of 5 aligned). Wait for confirmation."
+           summary = guardrail_reason if guardrail_reason else f"Bias forming ({max(bullish_count, bearish_count)} of {total_count} aligned). Wait for confirmation."
         elif main_signal == 'WATCH':
-           summary = f"Building setup ({max(bullish_count, bearish_count)} of 5 aligned). Watch for confirmation."
+           summary = f"Building setup ({max(bullish_count, bearish_count)} of {total_count} aligned). Watch for confirmation."
         else:
            summary = f"Mixed signals ({bullish_count} bullish, {bearish_count} bearish). Wait for confirmation."
     
@@ -1400,6 +1416,10 @@ def get_trade_recommendation(symbol):
            'raw_signal': raw_signal,
            'signal_class': signal_class,
            'summary': summary,
+           'evaluated_indicators': evaluated_indicators,
+           'bullish_count': bullish_count,
+           'bearish_count': bearish_count,
+           'total_count': total_count,
            'confidence': confidence_label,
            'confidence_pct': round(confidence_pct, 1),
            'confidence_tier': confidence_tier,
