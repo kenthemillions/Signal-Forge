@@ -31,25 +31,27 @@ from signal_engine.smart_coach import analyze_trade, ask_deepseek
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Initialize Flask app
+
 app = Flask(__name__)
 Config.init_app(app)
 logger.info(f"Database backend: {app.config.get('SQLALCHEMY_DATABASE_URI', 'not set')[:30]}...")
 
-# Initialize extensions
+
 db.init_app(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-# Initialize components
+
 data_fetcher = MarketDataFetcher()
 indicator_engine = IndicatorEngine()
 strategy_orchestrator = StrategyOrchestrator()
 
-# Create database tables
+_cheap_options_cache = {'data': None, 'timestamp': None}
+
+
 with app.app_context():
     db.create_all()
     if Ticker.query.count() == 0:
-        default_tickers = ['SPY', 'SLV', 'GLD', 'AAPL', 'QQQ', 'TSLA', 'NVDA']  # Options focus: SPY, SLV, GLD, AAPL first
+        default_tickers = ['SPY', 'SLV', 'GLD', 'AAPL', 'QQQ', 'TSLA', 'NVDA']  
         for symbol in default_tickers:
             ticker = Ticker(symbol=symbol, is_active=True)
             db.session.add(ticker)
@@ -69,7 +71,7 @@ with app.app_context():
         db.session.add(default_settings)
         db.session.commit()
 
-    # Seed master and beta users if they don't exist
+    
     if User.query.filter_by(role='admin').first() is None:
         master = User(
             email='admin@signalforge.com',
@@ -101,22 +103,34 @@ def background_price_updater():
                 tickers = Ticker.query.filter_by(is_active=True).all()
                 for ticker in tickers:
                     try:
-                        data_fetcher.clear_cache(ticker.symbol)
-                        data = data_fetcher.get_stock_data(ticker.symbol, period='1d', interval='5m')
+                        data = data_fetcher.get_stock_data(ticker.symbol, period='1d', interval='1m')
                         if data and 'error' not in data and 'current_price' in data:
                             socketio.emit('price_update', {
                                 'symbol': ticker.symbol,
                                 'price': data.get('current_price', 0),
                                 'change': data.get('change', 0),
                                 'change_percent': data.get('change_percent', 0),
+                                'session': data.get('session', 'regular'),
                                 'timestamp': datetime.now().isoformat()
                             })
                     except Exception as e:
                         logger.debug('Price update failed for %s: %s', ticker.symbol, e)
-                    eventlet.sleep(1)
+                    eventlet.sleep(0.5)
         except Exception as e:
             logger.debug('Background price updater: %s', e)
-        eventlet.sleep(15)
+        eventlet.sleep(5)
+
+def background_cheap_options_scanner():
+    while True:
+        try:
+            from services.cheap_option_radar import cheap_option_radar as _radar
+            result = _radar.scan(limit=10)
+            _cheap_options_cache['data'] = result
+            _cheap_options_cache['timestamp'] = datetime.now().isoformat()
+            logger.info("Cheap options cache refreshed")
+        except Exception as e:
+            logger.debug('Background cheap options scanner: %s', e)
+        eventlet.sleep(300)
 
 @app.route('/health')
 def health_check():
@@ -532,6 +546,10 @@ def ask_coach_endpoint():
             'mode': 'error'
         }), 500
 
+@app.route('/api/coach/status')
+def coach_status():
+    return jsonify({'server_ai_available': bool(Config.DEEPSEEK_API_KEY)})
+
 @app.route('/api/tickers')
 def get_tickers():
     try:
@@ -547,11 +565,11 @@ def add_ticker():
     raw = (data.get('symbol') or data.get('ticker') or '').strip().upper()
     if not raw:
         return jsonify({'error': 'Symbol required', 'success': False}), 400
-    # Accept comma- or space-separated tickers (e.g. "AAPL, MSFT, NVDA")
+    
     symbols = [s.strip() for s in raw.replace(',', ' ').split() if s.strip() and len(s.strip()) <= 12]
     if not symbols:
         return jsonify({'error': 'Enter at least one symbol (e.g. AAPL or AAPL, MSFT)', 'success': False}), 400
-    symbols = symbols[:20]  # cap at 20 per request
+    symbols = symbols[:20]  
     added = []
     errors = []
     for symbol in symbols:
@@ -714,7 +732,7 @@ def quick_analysis(symbol):
     indicators = indicator_engine.calculate_all(data, settings)
     signal = strategy_orchestrator.generate_signal(symbol.upper(), indicators, data, settings)
     
-    # Count bullish vs bearish indicators
+    
     bullish_count = 0
     bearish_count = 0
     
@@ -795,7 +813,7 @@ def get_news(symbol):
     news = data_fetcher.get_news(symbol.upper(), limit)
     return jsonify({'symbol': symbol.upper(), 'news': news})
 
-# In-memory cache for trend reversal detection (5m + 15m per symbol)
+
 _trend_cache = {}
 _trend_cache_max_age_sec = 120
 
@@ -815,10 +833,10 @@ def _detect_trend_reversal(symbol: str, data: dict, indicators: dict,
     current_price = closes[-1]
     macd = indicators.get('macd', {})
     macd_signal = macd.get('signal_type', 'NEUTRAL')
-    # Normalize trend to BULLISH/BEARISH/NEUTRAL
+    
     cur_5m = trend_5m if trend_5m in ('BULLISH', 'BEARISH') else 'NEUTRAL'
     cur_15m = higher_tf_trend if higher_tf_trend in ('BULLISH', 'BEARISH') else 'NEUTRAL'
-    # --- 1) Multi-timeframe flip: both 5m and 15m just switched together ---
+    
     key = symbol.upper()
     prev = _trend_cache.get(key)
     _trend_cache[key] = {'5m': cur_5m, '15m': cur_15m, 'ts': datetime.utcnow()}
@@ -836,20 +854,20 @@ def _detect_trend_reversal(symbol: str, data: dict, indicators: dict,
             result['reason'] = '5m and 15m both flipped to BULLISH — trend reversing up.'
             result['severity'] = 'high'
             return result
-    # --- 2) Structure break: price broke swing high/low with momentum confirmation ---
+    
     lookback = 12
     if len(closes) < lookback + 2:
         return result
     swing_low = min(lows[-lookback:-2])
     swing_high = max(highs[-lookback:-2])
-    # Bearish reversal: close below prior swing low + bearish momentum
+    
     if current_price < swing_low and cur_5m == 'BEARISH' and ('BEARISH' in macd_signal or macd.get('histogram', 0) < 0):
         result['detected'] = True
         result['direction'] = 'BULLISH_TO_BEARISH'
         result['reason'] = f'Structure break: price broke below swing low ${swing_low:.2f} with bearish momentum.'
         result['severity'] = 'high'
         return result
-    # Bullish reversal: close above prior swing high + bullish momentum
+    
     if current_price > swing_high and cur_5m == 'BULLISH' and ('BULLISH' in macd_signal or macd.get('histogram', 0) > 0):
         result['detected'] = True
         result['direction'] = 'BEARISH_TO_BULLISH'
@@ -875,18 +893,18 @@ def get_central_time_info():
         now = datetime.now(ct)
     else:
         from datetime import timedelta
-        now = datetime.utcnow() - timedelta(hours=6)  # CST approximation
+        now = datetime.utcnow() - timedelta(hours=6)  
     
     hour = now.hour
     minute = now.minute
     total_minutes = hour * 60 + minute
     
-    # Time windows in Central Time
-    # 9:45 AM CT = 585 minutes, 2:30 PM CT = 870 minutes, 3:00 PM CT = 900 minutes
-    before_945 = total_minutes < 585  # Before 9:45 AM CT
-    prime_window = 585 <= total_minutes <= 870  # 9:45 AM - 2:30 PM CT
-    late_session = total_minutes > 870  # After 2:30 PM CT
-    pre_market = total_minutes < 510  # Before 8:30 AM CT (market open 8:30 CT = 9:30 ET)
+    
+    
+    before_945 = total_minutes < 585  
+    prime_window = 585 <= total_minutes <= 870  
+    late_session = total_minutes > 870  
+    pre_market = total_minutes < 510  
     
     return {
         'time_ct': now.strftime('%H:%M CT'),
@@ -905,12 +923,12 @@ def classify_signal_with_guardrails(raw_signal, confidence_pct, volume_ratio, rs
     Classify signal with time-of-day guardrails and confidence requirements.
     Returns: (final_signal, signal_class, reason_text, education_text, entry_window, entry_type)
     """
-    # Determine raw bias
+    
     is_bullish = raw_signal in ['STRONG BUY', 'BUY']
     is_bearish = raw_signal in ['STRONG SELL', 'SELL']
     has_bias = is_bullish or is_bearish
     
-    # Default values
+    
     final_signal = raw_signal
     signal_class = 'wait'
     reason_text = ""
@@ -919,7 +937,7 @@ def classify_signal_with_guardrails(raw_signal, confidence_pct, volume_ratio, rs
     entry_type = "No clear entry"
     conviction_label = ""
     
-    # Overbought/oversold contradiction check - still useful but not blocking
+    
     wait_for_text = ""
     if is_bullish and rsi_val >= 70 and macd_signal in ['BEARISH', 'BEARISH_CROSS'] and volume_ratio <= 1.0:
         final_signal = 'PREPARE'
@@ -939,10 +957,10 @@ def classify_signal_with_guardrails(raw_signal, confidence_pct, volume_ratio, rs
         wait_for_text = "Waiting for bounce into VWAP to reject."
         return final_signal, signal_class, reason_text, education_text, entry_window, entry_type, conviction_label, wait_for_text
     
-    # REMOVED TIME RESTRICTIONS - Allow signals all day during market hours
-    # User preference: analyze stocks pre-market, at market open, all day until close
     
-    # Set entry window based on time for info only (not blocking)
+    
+    
+    
     if is_premarket or ct_info['pre_market']:
         entry_window = "Pre-market (confirm at open)"
     elif ct_info['before_945']:
@@ -952,20 +970,20 @@ def classify_signal_with_guardrails(raw_signal, confidence_pct, volume_ratio, rs
     else:
         entry_window = "Now (confirm on 5m)"
     
-    # Signal logic - confidence-based, no time blocking
+    
     if has_bias:
-        # Confidence >= 90: HIGH CONVICTION
+        
         if confidence_pct >= 90:
             conviction_label = "HIGH CONVICTION"
         
-        # Confidence < 60: downgrade to PREPARE (very low confidence only)
+        
         if confidence_pct < 60:
             final_signal = 'PREPARE'
             signal_class = 'prepare'
             reason_text = f"Confidence {confidence_pct:.0f}% — need more confirmation."
             education_text = "Bias is forming — waiting improves entry price and stops."
         else:
-            # 60%+ confidence: allow the signal
+            
             final_signal = raw_signal
             signal_class = 'strong-buy' if raw_signal == 'STRONG BUY' else \
                           'buy' if raw_signal == 'BUY' else \
@@ -976,7 +994,7 @@ def classify_signal_with_guardrails(raw_signal, confidence_pct, volume_ratio, rs
         final_signal = raw_signal
         signal_class = 'watch' if raw_signal == 'WATCH' else 'wait'
     
-    # Determine entry type based on conditions
+    
     wait_for_text = ""
     if is_bullish:
         if rsi_val >= 70:
@@ -1005,7 +1023,7 @@ def classify_signal_with_guardrails(raw_signal, confidence_pct, volume_ratio, rs
             if final_signal == 'PREPARE':
                 wait_for_text = "Waiting for opening range break + hold."
     
-    # Default wait_for_text for PREPARE signals
+    
     if final_signal == 'PREPARE' and not wait_for_text:
         wait_for_text = "Waiting for opening range break + hold."
     
@@ -1073,17 +1091,17 @@ def get_trade_recommendation(symbol):
         bearish_count += 1
         reasons.append(f"Trend bearish ({trend.get('strength', 0)}%)")
     
-    # Real-time price momentum (critical for premarket/afterhours)
-    # Weight heavily since historical indicators are stale outside market hours
+    
+    
     change_pct = data.get('change_percent', 0)
     is_extended_hours = market_status.get('current_session') in ['PRE_MARKET', 'AFTER_HOURS']
-    momentum_weight = 2 if is_extended_hours else 1  # Double weight during extended hours
+    momentum_weight = 2 if is_extended_hours else 1  
     
     if change_pct >= 0.5:
-        bullish_count += momentum_weight + 1  # +3 during premarket for strong moves
+        bullish_count += momentum_weight + 1  
         reasons.append(f"STRONG price momentum UP (+{change_pct:.2f}%)")
     elif change_pct >= 0.2:
-        bullish_count += momentum_weight  # +2 during premarket
+        bullish_count += momentum_weight  
         reasons.append(f"Price momentum UP (+{change_pct:.2f}%)")
     elif change_pct <= -0.5:
         bearish_count += momentum_weight + 1
@@ -1107,7 +1125,7 @@ def get_trade_recommendation(symbol):
     
     total_indicators = bullish_count + bearish_count
     
-    # Determine raw signal before guardrails
+    
     if bullish_count >= 4 and volume_spike:
         raw_signal = 'STRONG BUY'
     elif bullish_count >= 3 and bullish_count > bearish_count:
@@ -1121,13 +1139,13 @@ def get_trade_recommendation(symbol):
     else:
         raw_signal = 'WAIT'
     
-    # --- ACCURACY: Volume requirement for BUY/SELL (no dead-volume signals) ---
+    
     if raw_signal in ['BUY', 'SELL'] and vol_ratio < 1.0:
         raw_signal = 'PREPARE'
         reasons.append(f"Need volume confirmation (current {vol_ratio:.1f}x average).")
     
-    # --- ACCURACY: Higher-timeframe trend alignment (trade WITH the trend) ---
-    higher_tf_trend = None  # 15m trend for display and gating
+    
+    higher_tf_trend = None  
     try:
         data_15m = data_fetcher.get_stock_data(symbol, period='5d', interval='15m')
         if data_15m and 'error' not in data_15m:
@@ -1139,7 +1157,7 @@ def get_trade_recommendation(symbol):
             elif raw_signal in ['STRONG SELL', 'SELL'] and higher_tf_trend == 'BULLISH':
                 raw_signal = 'PREPARE'
                 reasons.append("Higher timeframe (15m) still bullish — wait for trend alignment.")
-            # OPTIONS EDGE: For STRONG calls, require 15m to agree (not just "not opposite")
+            
             if raw_signal == 'STRONG BUY' and higher_tf_trend != 'BULLISH':
                 raw_signal = 'BUY'
                 reasons.append("15m not yet bullish — STRONG CALL requires 5m & 15m alignment.")
@@ -1149,10 +1167,10 @@ def get_trade_recommendation(symbol):
     except Exception:
         pass
     
-    # Calculate confidence percentage (0-100)
-    confidence_pct = strength  # Use strength score as confidence
     
-    # Apply time-of-day guardrails and confidence requirements
+    confidence_pct = strength  
+    
+    
     main_signal, signal_class, guardrail_reason, education_text, entry_window, entry_type, conviction_label, wait_for_text = \
         classify_signal_with_guardrails(
             raw_signal=raw_signal,
@@ -1166,7 +1184,7 @@ def get_trade_recommendation(symbol):
             is_premarket=market_status.get('current_session') == 'PRE_MARKET'
         )
     
-    # Build summary with guardrail info
+    
     summary = ""
     if main_signal == 'STRONG BUY':
         summary = f"{bullish_count} of 5 indicators bullish + volume surge! High conviction call setup."
@@ -1183,14 +1201,14 @@ def get_trade_recommendation(symbol):
     else:
         summary = f"Mixed signals ({bullish_count} bullish, {bearish_count} bearish). Wait for confirmation."
     
-    # --- TREND REVERSAL: Real-time detection (scream-worthy alert) ---
+    
     trend_reversal = _detect_trend_reversal(
         symbol, data, indicators,
         higher_tf_trend or 'NEUTRAL',
         trend.get('direction', 'NEUTRAL')
     )
     
-    # --- OPTIONS EDGE: Single clear call for options (CALL / PUT / FLAT) ---
+    
     if main_signal in ['STRONG BUY', 'BUY']:
         edge_direction = 'CALL'
         edge_pct = round(confidence_pct)
@@ -1200,7 +1218,7 @@ def get_trade_recommendation(symbol):
     else:
         edge_direction = 'FLAT'
         edge_pct = 50
-    # One-line reason for edge (options-focused)
+    
     parts = []
     if higher_tf_trend and higher_tf_trend != 'NEUTRAL':
         parts.append(f"15m {higher_tf_trend.lower()}")
@@ -1222,10 +1240,10 @@ def get_trade_recommendation(symbol):
     
     entry = current_price
     
-    # Get VWAP value for stop guidance
+    
     vwap_value = vwap.get('value', current_price)
     
-    # Determine option type based on raw signal bias (for PREPARE signals)
+    
     is_bullish_bias = raw_signal in ['STRONG BUY', 'BUY'] or bullish_count > bearish_count
     
     if main_signal in ['STRONG BUY', 'BUY'] or (main_signal == 'PREPARE' and is_bullish_bias):
@@ -1238,7 +1256,7 @@ def get_trade_recommendation(symbol):
             target = resistance
         option_type = "CALL"
         strike = round(current_price / 5) * 5
-        # Hard stop guidance: below VWAP or support (whichever is closer)
+        
         hard_stop = max(min(vwap_value, support), entry * 0.97)
         stop_guidance = f"Below VWAP (${vwap_value:.2f}) or support (${support:.2f})"
     elif main_signal in ['STRONG SELL', 'SELL'] or (main_signal == 'PREPARE' and not is_bullish_bias):
@@ -1251,7 +1269,7 @@ def get_trade_recommendation(symbol):
             target = support
         option_type = "PUT"
         strike = round(current_price / 5) * 5
-        # Hard stop guidance: above VWAP or resistance (whichever is closer)
+        
         hard_stop = min(max(vwap_value, resistance), entry * 1.03)
         stop_guidance = f"Above VWAP (${vwap_value:.2f}) or resistance (${resistance:.2f})"
     else:
@@ -1283,7 +1301,7 @@ def get_trade_recommendation(symbol):
     next_friday = today + timedelta(days=days_to_friday)
     expiry = next_friday.strftime('%m/%d')
     
-    # Confidence tier for visual styling
+    
     confidence_tier = 'high' if confidence_pct >= 90 else ('normal' if confidence_pct >= 70 else 'muted')
     confidence_label = 'HIGH' if strength >= 75 else ('MODERATE' if strength >= 50 else 'LOW')
     position_contracts = max(1, min(5, int(10000 * 0.02 / (current_price * 0.05))))
@@ -2558,22 +2576,22 @@ def market_open_scan():
             'trending_picks': []
         })
 
-### NEW FEATURES: Cheap Option Radar, Time Edge, Late-Day Gatekeeper ###
 
-from services.cheap_option_radar import cheap_option_radar
+
 from services.time_edge_analyzer import time_edge_analyzer
 from services.late_day_gatekeeper import late_day_gatekeeper
 
 @app.route('/api/cheap-options')
 def cheap_options_scan():
-    """Cheap Option Radar - Find high-potential cheap options"""
-    try:
-        limit = request.args.get('limit', 10, type=int)
-        result = cheap_option_radar.scan(limit=limit)
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Cheap options scan error: {e}")
-        return jsonify({'candidates': [], 'error': str(e)}), 500
+    """Cheap Option Radar - serve from background cache"""
+    if _cheap_options_cache['data']:
+        return jsonify(_cheap_options_cache['data'])
+    return jsonify({
+        'candidates': [],
+        'pending': True,
+        'message': 'Initial scan in progress, please try again in 30 seconds',
+        'timestamp': datetime.now().isoformat()
+    }), 202
 
 @app.route('/api/time-edge/<symbol>')
 def time_edge_analysis(symbol):
@@ -2596,7 +2614,7 @@ def gatekeeper_status():
         settings = UserSettings.query.first()
         timezone = settings.timezone if settings else 'CT'
         
-        # Reset daily tracking if new day
+        
         late_day_gatekeeper.reset_daily(settings)
         if settings:
             db.session.commit()
@@ -2716,7 +2734,7 @@ def handle_update_request(data):
 
 def background_updates():
     while True:
-        socketio.sleep(30)
+        socketio.sleep(15)
         with app.app_context():
             tickers = Ticker.query.filter_by(is_active=True).all()
             settings = UserSettings.query.first()
@@ -2742,6 +2760,7 @@ def background_updates():
 
 socketio.start_background_task(background_updates)
 socketio.start_background_task(background_price_updater)
+socketio.start_background_task(background_cheap_options_scanner)
 
 if __name__ == '__main__':
     print("🚀 Signal Forge starting on http://localhost:5000")

@@ -919,13 +919,13 @@
                         <div class="row g-2">
                             <div class="col-6">
                                 <div class="border border-secondary rounded p-2">
-                                    <div class="small text-muted">Market Close</div>
+                                    <div class="small text-muted" id="close-countdown-label">Opens In</div>
                                     <div id="close-countdown" class="h5 text-warning mb-0">--:--:--</div>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="border border-secondary rounded p-2">
-                                    <div class="small text-muted">Lottery Hour</div>
+                                    <div class="small text-muted" id="lottery-countdown-label">Lottery Hour</div>
                                     <div id="lottery-countdown" class="h5 text-danger mb-0">--:--:--</div>
                                 </div>
                             </div>
@@ -1468,9 +1468,9 @@
                 <div class="modal-body">
                     <div class="alert alert-info small">
                         <i class="bi bi-info-circle"></i> 
-                        <strong>Free Mode:</strong> The coach uses rule-based analysis at no cost.
+                        <strong>AI Mode:</strong> The coach uses DeepSeek AI to analyze live market data and answer your questions.
                         <br><br>
-                        <strong>AI Mode (Optional):</strong> Add your own DeepSeek API key for more natural AI responses.
+                        <strong>Optional:</strong> Add your own DeepSeek API key to use your personal quota.
                         Get a free key at <a href="https://platform.deepseek.com" target="_blank" class="text-info">platform.deepseek.com</a>
                     </div>
                     <div class="mb-3">
@@ -1709,20 +1709,27 @@
             }
         });
         
-        function loadCoachSettings() {
+        let _serverAiAvailable = false;
+
+        async function loadCoachSettings() {
             const settings = JSON.parse(localStorage.getItem('coach_settings') || '{}');
             const apiKey = settings.deepseekKey || '';
             const useAI = settings.useAI || false;
             
             document.getElementById('deepseek-api-key').value = apiKey;
             document.getElementById('use-ai-coach').checked = useAI;
-            
-            updateCoachBadge(apiKey && useAI);
+
+            try {
+                const res = await fetch('/api/coach/status');
+                const json = await res.json();
+                _serverAiAvailable = json.server_ai_available || false;
+            } catch(e) { _serverAiAvailable = false; }
+
+            updateCoachBadge((apiKey && useAI) || _serverAiAvailable);
         }
         
         function updateCoachBadge(aiEnabled) {
             const badge = document.getElementById('coach-mode-badge');
-            const modeText = document.querySelector('#coach-response')?.previousElementSibling?.querySelector('small');
             if (aiEnabled) {
                 badge.textContent = 'AI';
                 badge.className = 'badge bg-success';
@@ -1736,7 +1743,7 @@
             const apiKey = document.getElementById('deepseek-api-key').value.trim();
             const useAI = document.getElementById('use-ai-coach').checked;
             localStorage.setItem('coach_settings', JSON.stringify({ deepseekKey: apiKey, useAI }));
-            updateCoachBadge(apiKey && useAI);
+            updateCoachBadge((apiKey && useAI) || _serverAiAvailable);
         });
         
         document.getElementById('toggle-key-visibility')?.addEventListener('click', function() {
