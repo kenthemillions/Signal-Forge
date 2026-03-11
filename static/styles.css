@@ -29,6 +29,14 @@
     max-height: 300px;
 }
 
+.chart-placeholder {
+    position: absolute;
+    inset: 0;
+    background: rgba(13, 17, 23, 0.85);
+    z-index: 1;
+    padding: 1rem;
+}
+
 /* Volume Chart Styles - Fixed height */
 .volume-chart-container {
     width: 100%;

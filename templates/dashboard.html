@@ -606,7 +606,10 @@
                         </div>
                     </div>
                     <div class="card-body p-2">
-                        <div class="price-chart-container">
+                        <div class="price-chart-container position-relative">
+                            <div id="chart-no-data" class="chart-placeholder text-muted small d-flex align-items-center justify-content-center">
+                                No chart data — click <strong class="text-info">Refresh</strong> to load
+                            </div>
                             <canvas id="price-chart" style="width: 100%; height: 100%;"></canvas>
                         </div>
                         <!-- Fixed Mobile Indicator Strip -->

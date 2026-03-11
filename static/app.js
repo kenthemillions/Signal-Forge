@@ -263,12 +263,11 @@ class TradingSignalsApp {
         setTimeout(() => this.clearLoadingState(), 3000);
         this.startLoadingTimeout();
         
-        try {
-            await this.refreshData();
-        } catch (e) {
+        // Run refresh in background so UI (ticker list, placeholders) shows immediately
+        this.refreshData().catch(e => {
             console.warn('Initial refresh failed:', e);
             this.clearLoadingState();
-        }
+        });
     }
     
     startLoadingTimeout() {
@@ -1586,6 +1585,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.tickerSelection[sym] = true;
             this.scannerTickerSelection[sym] = savedObj[sym] !== false;
         });
+        if (select.options.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = 'SPY';
+            opt.textContent = 'SPY';
+            select.appendChild(opt);
+            tickers = [{ symbol: 'SPY' }];
+        }
         const firstSym = (tickers[0] && tickers[0].symbol) || 'SPY';
         this.currentTicker = firstSym;
         if (select.options.length) {
@@ -2667,6 +2673,10 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             const iconEl = document.getElementById('session-icon');
             if (iconEl) iconEl.textContent = '📡';
         }
+        const signalSummary = document.getElementById('signal-summary');
+        if (signalSummary && /Analyzing market conditions/i.test(signalSummary.textContent)) {
+            signalSummary.textContent = 'Click Refresh for live analysis.';
+        }
         if (premarketTrend && premarketTrend.textContent.trim() === 'Loading...') {
             premarketTrend.textContent = '—';
             premarketTrend.className = 'h5 text-muted';
@@ -3001,21 +3011,30 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const currentPriceEl = document.getElementById('current-price');
         const priceChangeEl = document.getElementById('price-change');
         const lastUpdatedEl = document.getElementById('last-updated');
+        const setPlaceholder = () => {
+            if (currentPriceEl) currentPriceEl.innerHTML = '<span class="text-muted">Click Refresh for live price</span>';
+            if (priceChangeEl) priceChangeEl.textContent = '—';
+            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+        };
         try {
             const cacheBuster = Date.now();
             const ac = new AbortController();
             const t = setTimeout(() => ac.abort(), 15000);
             const response = await fetch(`/api/trade-recommendation/${requestedSymbol}?interval=${this.currentInterval}&_t=${cacheBuster}`, { signal: ac.signal });
             clearTimeout(t);
-            const data = await response.json();
+            let data = {};
+            try {
+                data = await response.json();
+            } catch (_) {
+                setPlaceholder();
+                return;
+            }
             
             if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
             
             if (data.error || !data.current_price) {
                 console.warn('Trade recommendation:', data.error || 'No price data');
-                if (currentPriceEl) currentPriceEl.innerHTML = '<span class="text-muted">Refresh for live price</span>';
-                if (priceChangeEl) priceChangeEl.textContent = '—';
-                if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+                setPlaceholder();
                 return;
             }
             
@@ -3058,9 +3077,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             
         } catch (error) {
             console.warn('Trade recommendation load failed:', error);
-            if (currentPriceEl) currentPriceEl.innerHTML = '<span class="text-muted">Click Refresh for price</span>';
-            if (priceChangeEl) priceChangeEl.textContent = '—';
-            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+            setPlaceholder();
         }
     }
     
@@ -3590,6 +3607,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (data.error) {
                 if (this.chart?.data?.datasets?.[0]) this.chart.data.datasets[0].data = [];
                 if (this.chart) this.chart.update('none');
+                this.showChartNoData(true);
                 return;
             }
             
@@ -3613,6 +3631,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             console.warn('Chart load:', error);
             if (this.chart?.data?.datasets?.[0]) this.chart.data.datasets[0].data = [];
             if (this.chart) this.chart.update('none');
+            this.showChartNoData(true);
+        }
+    }
+    
+    showChartNoData(show) {
+        const el = document.getElementById('chart-no-data');
+        if (el) {
+            if (show) el.classList.remove('d-none'); else el.classList.add('d-none');
         }
     }
     
@@ -3653,6 +3679,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         }
         
         this.chart.update('none');
+        this.showChartNoData(false);
     }
     
     renderCandlestickChart(data, indicators) {
@@ -3725,6 +3752,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         }
         
         this.chart.update('none');
+        this.showChartNoData(false);
     }
     
     renderOHLCBars(data, indicators) {
@@ -3796,6 +3824,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         }
         
         this.chart.update('none');
+        this.showChartNoData(false);
     }
     
     padArray(arr, targetLen) {
