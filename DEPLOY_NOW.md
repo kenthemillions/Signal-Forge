@@ -24,7 +24,7 @@ In the same service, go to **Environment** and add:
 
 ## 4. What’s connected
 
-- **Financial data:** **Yahoo Finance (yfinance)** only. All market data from Yahoo; same source for charts, institutional flow, Fib/ATR, and coach.
+- **Data source:** **Yahoo Finance (yfinance)** only. No Alpaca. All areas use the same data_fetcher → Yahoo. When you select a ticker, every area (chart, traffic light, premarket, institutional, Fib/ATR, coach, scanners) populates for that symbol.
 - **Charts:** Dashboard chart + indicators from `/api/market-data` and `/api/indicators` (1m, 2m, 5m, 15m, 1h, 4h).
 - **Institutional flow:** Buy/Sell/WAIT with entry, stop, target — uses same data as dashboard; 5m, 15m, 1h, 4h timeframes.
 - **Fibonacci & ATR:** Scalping levels per ticker (best retracement zone, ATR move, Fib levels) from `/api/scalping-levels/<symbol>`.

@@ -17,7 +17,6 @@ from auth import (
 )
 from config import Config
 from indicators import IndicatorEngine
-import yfinance as yf
 from strategies import StrategyOrchestrator
 from data_fetcher import MarketDataFetcher
 from options_analytics import options_analytics
