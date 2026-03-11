@@ -1,12 +1,21 @@
 """
 Market Data Fetcher Module
-Fetches real-time and historical data using yfinance
+Uses Alpaca when ALPACA_API_KEY + ALPACA_SECRET_KEY are set; otherwise yfinance.
 """
 import yfinance as yf
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 import pandas as pd
 import numpy as np
+
+def _use_alpaca():
+    try:
+        from alpaca_provider import alpaca_configured
+        return alpaca_configured()
+    except ImportError:
+        return False  # alpaca-py not installed
+    except Exception:
+        return False
 
 class MarketDataFetcher:
     """Fetches market data from Yahoo Finance"""
@@ -66,6 +75,17 @@ class MarketDataFetcher:
             if datetime.now() < self._cache_expiry.get(cache_key, datetime.min):
                 return self._cache[cache_key]
         
+        if _use_alpaca():
+            try:
+                from alpaca_provider import get_stock_data_alpaca
+                result = get_stock_data_alpaca(symbol, period=period, interval=interval)
+                if 'error' not in result:
+                    self._cache[cache_key] = result
+                    self._cache_expiry[cache_key] = datetime.now() + timedelta(seconds=self._get_cache_duration())
+                return result
+            except Exception as e:
+                return {'error': str(e), 'symbol': symbol}
+        
         try:
             ticker = yf.Ticker(symbol)
             df = ticker.history(period=period, interval=interval, prepost=True)
@@ -73,43 +93,96 @@ class MarketDataFetcher:
             if df.empty:
                 return {'error': f'No data available for {symbol}'}
             
+            # Primary: last close from history (includes extended hours when prepost=True)
+            intraday_last = float(df['Close'].iloc[-1]) if len(df) > 0 else 0
+            
             info = {}
             try:
                 info = ticker.info
-            except:
+            except Exception:
                 pass
             
-            previous_close = info.get('previousClose') or info.get('regularMarketPreviousClose') or df['Open'].iloc[0]
+            # fast_info is faster and often has last_price when info is empty/delayed
+            fast_price = None
+            fast_previous = None
+            try:
+                fi = getattr(ticker, 'fast_info', None)
+                if fi is not None:
+                    fast_price = getattr(fi, 'last_price', None)
+                    fast_previous = getattr(fi, 'previous_close', None)
+            except Exception:
+                pass
+            
+            previous_close = (
+                info.get('previousClose') or info.get('regularMarketPreviousClose')
+                or fast_previous or (float(df['Open'].iloc[0]) if len(df) > 0 else 0)
+            )
+            if previous_close is None:
+                previous_close = float(df['Open'].iloc[0]) if len(df) > 0 else 0
             
             premarket_price = info.get('preMarketPrice')
             postmarket_price = info.get('postMarketPrice')
+            market_state = (info.get('marketState') or '').upper()
             
-            intraday_last = float(df['Close'].iloc[-1]) if len(df) > 0 else 0
-            api_price = info.get('regularMarketPrice') or info.get('currentPrice') or 0
-            regular_price = intraday_last if intraday_last > 0 else api_price
-            
+            # Determine session from market state or ET time
             session = 'regular'
-            regular_close = regular_price
-            bid_price = info.get('bid', 0)
-            ask_price = info.get('ask', 0)
+            et_tz = None
+            try:
+                from zoneinfo import ZoneInfo
+                et_tz = ZoneInfo('America/New_York')
+            except ImportError:
+                try:
+                    import pytz
+                    et_tz = pytz.timezone('America/New_York')
+                except ImportError:
+                    pass
+            if et_tz:
+                now_et = datetime.now(et_tz)
+                hour, minute = now_et.hour, now_et.minute
+                if hour < 9 or (hour == 9 and minute < 30):
+                    session = 'premarket'
+                elif hour >= 16:
+                    session = 'afterhours'
+                else:
+                    session = 'regular'
+            if 'PRE' in market_state or 'PREOPEN' in market_state:
+                session = 'premarket'
+            elif 'POST' in market_state or 'CLOSED' in market_state:
+                if session == 'regular':
+                    session = 'afterhours'
             
-            if premarket_price and premarket_price > 0:
+            # Current price: prefer explicit pre/post from info, else fast_info last_price, else last bar (includes extended hours)
+            api_price = info.get('regularMarketPrice') or info.get('currentPrice') or 0
+            regular_price = intraday_last if intraday_last > 0 else (api_price or fast_price or 0)
+            if regular_price is None:
+                regular_price = intraday_last
+            
+            bid_price = info.get('bid', 0) or 0
+            ask_price = info.get('ask', 0) or 0
+            
+            if session == 'premarket' and (premarket_price is None or premarket_price <= 0):
+                premarket_price = intraday_last if intraday_last > 0 else fast_price
+            if session == 'afterhours' and (postmarket_price is None or postmarket_price <= 0):
+                postmarket_price = intraday_last if intraday_last > 0 else fast_price
+            
+            if premarket_price and premarket_price > 0 and session == 'premarket':
                 current_price = max(premarket_price, ask_price) if ask_price > 0 else premarket_price
                 change = current_price - previous_close
                 change_percent = (change / previous_close) * 100 if previous_close else 0
-                session = 'premarket'
-            elif postmarket_price and postmarket_price > 0:
+            elif postmarket_price and postmarket_price > 0 and session == 'afterhours':
                 current_price = max(postmarket_price, ask_price) if ask_price > 0 else postmarket_price
                 change = current_price - previous_close
                 change_percent = (change / previous_close) * 100 if previous_close else 0
-                session = 'afterhours'
             else:
-                current_price = regular_price
+                current_price = regular_price or fast_price or intraday_last
+                if current_price is None or current_price <= 0:
+                    current_price = intraday_last
                 change = current_price - previous_close
-                change_percent = (change / previous_close) * 100 if previous_close != 0 else 0
+                change_percent = (change / previous_close) * 100 if previous_close and previous_close != 0 else 0
             
             change = round(float(change), 2)
             change_percent = round(float(change_percent), 2)
+            regular_close = regular_price if regular_price else current_price
             
             result = {
                 'symbol': symbol,
@@ -128,7 +201,7 @@ class MarketDataFetcher:
                 'volume': int(df['Volume'].sum()) if len(df) > 0 else 0,
                 'change': change,
                 'change_percent': change_percent,
-                'previous_close': float(round(previous_close, 2)),
+                'previous_close': float(round(float(previous_close or 0), 2)),
                 'market_cap': info.get('marketCap', 0),
                 'pe_ratio': info.get('trailingPE', 0),
                 'last_updated': datetime.now().isoformat()
@@ -151,23 +224,47 @@ class MarketDataFetcher:
     
     def get_quote(self, symbol: str) -> Dict:
         """Get current quote for a symbol"""
+        if _use_alpaca():
+            try:
+                from alpaca_provider import get_quote_alpaca
+                return get_quote_alpaca(symbol)
+            except Exception as e:
+                return {'error': str(e), 'symbol': symbol}
         try:
             ticker = yf.Ticker(symbol)
-            info = ticker.info
-            
+            info = {}
+            try:
+                info = ticker.info or {}
+            except Exception:
+                pass
+            fast_price = None
+            try:
+                fi = getattr(ticker, 'fast_info', None)
+                if fi is not None:
+                    fast_price = getattr(fi, 'last_price', None)
+            except Exception:
+                pass
+            price = info.get('currentPrice') or info.get('regularMarketPrice') or fast_price or 0
+            prev = info.get('regularMarketPreviousClose') or info.get('previousClose')
+            if price and prev:
+                change = price - prev
+                change_pct = (change / prev) * 100
+            else:
+                change = info.get('regularMarketChange', 0) or 0
+                change_pct = info.get('regularMarketChangePercent', 0) or 0
             return {
                 'symbol': symbol,
-                'price': info.get('currentPrice', info.get('regularMarketPrice', 0)),
-                'change': info.get('regularMarketChange', 0),
-                'change_percent': info.get('regularMarketChangePercent', 0),
-                'volume': info.get('regularMarketVolume', 0),
-                'avg_volume': info.get('averageVolume', 0),
-                'bid': info.get('bid', 0),
-                'ask': info.get('ask', 0),
-                'day_high': info.get('dayHigh', 0),
-                'day_low': info.get('dayLow', 0),
-                'fifty_two_week_high': info.get('fiftyTwoWeekHigh', 0),
-                'fifty_two_week_low': info.get('fiftyTwoWeekLow', 0),
+                'price': float(price) if price is not None else 0,
+                'change': float(change) if change is not None else 0,
+                'change_percent': float(change_pct) if change_pct is not None else 0,
+                'volume': info.get('regularMarketVolume', 0) or 0,
+                'avg_volume': info.get('averageVolume', 0) or 0,
+                'bid': info.get('bid', 0) or 0,
+                'ask': info.get('ask', 0) or 0,
+                'day_high': info.get('dayHigh', 0) or 0,
+                'day_low': info.get('dayLow', 0) or 0,
+                'fifty_two_week_high': info.get('fiftyTwoWeekHigh', 0) or 0,
+                'fifty_two_week_low': info.get('fiftyTwoWeekLow', 0) or 0,
                 'last_updated': datetime.now().isoformat()
             }
         except Exception as e:

@@ -43,8 +43,8 @@ RSI: {rsi.get('value', 'N/A')} ({rsi.get('signal', 'N/A')})
 MACD: {macd.get('signal_type', 'N/A')} (Histogram: {macd.get('histogram', 'N/A')})
 Bollinger: {bollinger.get('signal', 'N/A')} (Upper: ${bollinger.get('upper', 'N/A')}, Lower: ${bollinger.get('lower', 'N/A')})
 VWAP: ${vwap.get('value', 'N/A')} ({'Above' if vwap.get('above_vwap') else 'Below'} VWAP)
-EMA Trend: {ema.get('trend', 'N/A')} (13: ${ema.get('ema13', 'N/A')}, 48: ${ema.get('ema48', 'N/A')})
-Volume: {volume.get('trend', 'N/A')} ({volume.get('spike_ratio', 1):.1f}x average)
+EMA: 13=${ema.get('ema_13', ema.get('ema13', 'N/A'))}, 48=${ema.get('ema_48', ema.get('ema48', 'N/A'))} (Price vs 13: {ema.get('price_vs_ema_13', 'N/A')})
+Volume: {volume.get('spike_ratio', 1):.1f}x average (spike: {volume.get('spike', False)})
 
 === FIBONACCI RETRACEMENT ===
 Swing High: ${fib.get('swing_high', 'N/A')} | Swing Low: ${fib.get('swing_low', 'N/A')}

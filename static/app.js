@@ -273,40 +273,49 @@ class TradingSignalsApp {
     }
     
     async loadPremarketAnalysis() {
+        const directionEl = document.getElementById('premarket-direction');
+        const trendEl = document.getElementById('premarket-trend');
+        const priceEl = document.getElementById('premarket-price');
+        const changeEl = document.getElementById('premarket-change');
+        const outlookEl = document.getElementById('premarket-outlook');
         try {
             const response = await fetch(`/api/premarket-analysis/${this.currentTicker}?_t=${Date.now()}`);
             const data = await response.json();
-            
-            const directionEl = document.getElementById('premarket-direction');
-            const trendEl = document.getElementById('premarket-trend');
-            const priceEl = document.getElementById('premarket-price');
-            const changeEl = document.getElementById('premarket-change');
-            const outlookEl = document.getElementById('premarket-outlook');
-            
-            if (data.trend && directionEl) {
+            if (data.error || !data.trend) {
+                if (trendEl) trendEl.textContent = '—';
+                if (directionEl) directionEl.textContent = '→';
+                if (priceEl) priceEl.textContent = '—';
+                if (changeEl) changeEl.textContent = '—';
+                if (outlookEl) outlookEl.textContent = 'Refresh for premarket data';
+                return;
+            }
+            if (directionEl) {
                 const arrow = data.direction === 'UP' ? '↑' : data.direction === 'DOWN' ? '↓' : '→';
                 directionEl.textContent = arrow;
-                directionEl.style.color = data.color;
-                
+                directionEl.style.color = data.color || '#666';
+            }
+            if (trendEl) {
                 trendEl.textContent = data.trend;
-                trendEl.style.color = data.color;
-                
-                priceEl.textContent = `$${data.current_price}`;
-                
+                trendEl.style.color = data.color || '#666';
+            }
+            if (priceEl) priceEl.textContent = `$${Number(data.current_price).toFixed(2)}`;
+            if (changeEl) {
                 const sign = data.change >= 0 ? '+' : '';
-                changeEl.textContent = `${sign}${data.change} (${sign}${data.change_percent}%)`;
+                changeEl.textContent = `${sign}${Number(data.change).toFixed(2)} (${sign}${Number(data.change_percent).toFixed(2)}%)`;
                 changeEl.className = `fw-bold ${data.change >= 0 ? 'text-success' : 'text-danger'}`;
-                
-                outlookEl.textContent = data.outlook;
-                
-                const badge = document.getElementById('market-status');
-                if (badge && data.session === 'PREMARKET') {
-                    badge.textContent = 'PRE MARKET';
-                    badge.className = 'badge bg-info';
-                }
+            }
+            if (outlookEl) outlookEl.textContent = data.outlook || '';
+            const badge = document.getElementById('market-status');
+            if (badge && data.session === 'PREMARKET') {
+                badge.textContent = 'PRE MARKET';
+                badge.className = 'badge bg-info';
             }
         } catch (error) {
-            console.log('Premarket analysis not available');
+            if (trendEl) trendEl.textContent = '—';
+            if (directionEl) directionEl.textContent = '→';
+            if (priceEl) priceEl.textContent = '—';
+            if (changeEl) changeEl.textContent = '—';
+            if (outlookEl) outlookEl.textContent = 'Refresh for data';
         }
     }
     
@@ -816,8 +825,9 @@ class TradingSignalsApp {
                 return;
             }
             if (!data.strongest_plays || data.strongest_plays.length === 0) {
-                if (data.in_last_hour_window) {
-                    playsEl.innerHTML = '<span class="text-muted small">No strong plays in last hour yet.</span>';
+                if (data.in_last_hour_window || data.message) {
+                    const msg = data.message || 'No strong plays in last hour yet.';
+                    playsEl.innerHTML = `<span class="text-muted small">${msg}</span>`;
                     panel.classList.remove('d-none');
                 } else {
                     panel.classList.add('d-none');
@@ -1013,11 +1023,20 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 `;
                 
                 this.showNotification(`🎰 Found ${data.lottery_picks.length} lottery plays!`, 'warning');
+            } else if (!data.success) {
+                content.innerHTML = `
+                    <div class="text-center text-danger py-3">
+                        <i class="bi bi-exclamation-triangle"></i> Scan failed.
+                        <br><small>${(data.error || '').replace(/</g, '&lt;') || 'Try again later.'}</small>
+                    </div>
+                `;
             } else {
+                const msg = (data.total_scanned === 0 && data.message) ? data.message : 'No high-probability plays found right now.';
+                const hint = data.total_scanned === 0 ? 'Add tickers to your watchlist and try again.' : 'Check back closer to market close.';
                 content.innerHTML = `
                     <div class="text-center text-muted py-3">
-                        <i class="bi bi-emoji-frown"></i> No high-probability plays found right now.
-                        <br><small>Check back closer to market close.</small>
+                        <i class="bi bi-${data.total_scanned === 0 ? 'list-ul' : 'emoji-frown'}"></i> ${msg}
+                        <br><small>${hint}</small>
                     </div>
                 `;
             }
@@ -1531,6 +1550,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (!this.currentTicker) this.currentTicker = 'SPY';
             select.value = this.currentTicker;
         }
+        this.updateCoachPlaceholder();
         this.renderScannerTickerList(tickers);
         this.renderBodyScannerGrid(tickers);
         this.updateNavBadge();
@@ -2108,6 +2128,8 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 this.currentTicker = e.target.value;
                 this.lastReversalKey = null;
                 this.socket.emit('subscribe', { symbol: this.currentTicker });
+                this.showTickerLoading(true);
+                this.updateCoachPlaceholder();
                 this.refreshData();
             });
         }
@@ -2551,6 +2573,22 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         }
     }
     
+    showTickerLoading(show) {
+        const currentPriceEl = document.getElementById('current-price');
+        const priceChangeEl = document.getElementById('price-change');
+        const sym = (this.currentTicker || '').toUpperCase();
+        if (show && sym) {
+            if (currentPriceEl) currentPriceEl.innerHTML = `<span class="text-muted">Loading ${sym}…</span>`;
+            if (priceChangeEl) priceChangeEl.textContent = '—';
+        }
+    }
+    
+    updateCoachPlaceholder() {
+        const input = document.getElementById('coach-question');
+        const sym = (this.currentTicker || 'SPY').toUpperCase();
+        if (input) input.placeholder = `e.g. Is this a good buy for ${sym} calls?`;
+    }
+    
     clearLoadingState() {
         const badge = document.getElementById('market-status');
         const textEl = document.getElementById('session-text');
@@ -2620,22 +2658,25 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             }
             const best = data.best_retracement_range || {};
             const timeframes = data.timeframes || {};
+            const sym = (data.symbol || this.currentTicker || '').toUpperCase();
+            const fmt = (v) => (v != null && v !== '') ? Number(v).toFixed(2) : '—';
+            const fmtPct = (v) => (v != null && v !== '') ? Number(v).toFixed(2) + '%' : '—';
             if (bestRangeEl) {
                 bestRangeEl.innerHTML = `
-                    <div class="fw-bold text-info small">Best retracement (${best.timeframe || '—'})</div>
-                    <div class="text-muted small">Zone: ${best.zone || '—'} · SH: $${best.swing_high ?? '—'} SL: $${best.swing_low ?? '—'}</div>
-                    <div class="small">Support: $${best.nearest_support ?? '—'} · Resistance: $${best.nearest_resistance ?? '—'}</div>
+                    <div class="fw-bold text-info small">Best retracement ${sym ? `(${sym}) ` : ''}${best.timeframe || '—'}</div>
+                    <div class="text-muted small">Zone: ${best.zone || '—'} · SH: $${fmt(best.swing_high)} SL: $${fmt(best.swing_low)}</div>
+                    <div class="small">Support: $${fmt(best.nearest_support)} · Resistance: $${fmt(best.nearest_resistance)}</div>
                 `;
             }
             if (atrRangeEl && (best.atr_move != null || best.range_low != null)) {
                 atrRangeEl.innerHTML = `
-                    <div class="text-muted small">ATR move: $${best.atr_move ?? '—'} (${best.atr_pct ?? '—'}%)</div>
-                    <div class="small">Range: $${best.range_low ?? '—'} – $${best.range_high ?? '—'}</div>
+                    <div class="text-muted small">ATR move: $${fmt(best.atr_move)} (${fmtPct(best.atr_pct)})</div>
+                    <div class="small">Range: $${fmt(best.range_low)} – $${fmt(best.range_high)}</div>
                 `;
             } else if (atrRangeEl) atrRangeEl.innerHTML = '';
             const levels = best.levels || {};
             if (fibLevelsEl && Object.keys(levels).length) {
-                const parts = ['23.6', '38.2', '50', '61.8', '78.6'].filter(k => levels[k] != null).map(k => `${k}%: $${levels[k]}`);
+                const parts = ['23.6', '38.2', '50', '61.8', '78.6'].filter(k => levels[k] != null).map(k => `${k}%: $${fmt(levels[k])}`);
                 fibLevelsEl.innerHTML = `<div class="text-muted small">Fib: ${parts.join(' · ')}</div>`;
             } else if (fibLevelsEl) fibLevelsEl.innerHTML = '';
             const tfOrder = ['1m', '2m', '5m', '15m', '1h', '4h'];
@@ -2891,13 +2932,16 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
     
     async loadTradeRecommendation() {
+        const requestedSymbol = (this.currentTicker || '').toUpperCase();
         const currentPriceEl = document.getElementById('current-price');
         const priceChangeEl = document.getElementById('price-change');
         const lastUpdatedEl = document.getElementById('last-updated');
         try {
             const cacheBuster = Date.now();
-            const response = await fetch(`/api/trade-recommendation/${this.currentTicker}?interval=${this.currentInterval}&_t=${cacheBuster}`);
+            const response = await fetch(`/api/trade-recommendation/${requestedSymbol}?interval=${this.currentInterval}&_t=${cacheBuster}`);
             const data = await response.json();
+            
+            if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
             
             if (data.error || !data.current_price) {
                 console.warn('Trade recommendation:', data.error || 'No price data');
@@ -3461,10 +3505,13 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     
     async loadChartData() {
         if (!this.chartCanvas) return;
+        const requestedSymbol = (this.currentTicker || '').toUpperCase();
         try {
             const cacheBuster = Date.now();
-            const response = await fetch(`/api/market-data/${this.currentTicker}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
+            const response = await fetch(`/api/market-data/${requestedSymbol}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
             const data = await response.json();
+            
+            if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
             
             if (data.error) {
                 if (this.chart?.data?.datasets?.[0]) this.chart.data.datasets[0].data = [];
@@ -3472,15 +3519,16 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 return;
             }
             
-            const indicatorsRes = await fetch(`/api/indicators/${this.currentTicker}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
+            const indicatorsRes = await fetch(`/api/indicators/${requestedSymbol}?period=${this.currentPeriod}&interval=${this.currentInterval}&_t=${cacheBuster}`);
             const indicators = await indicatorsRes.json();
+            if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
             
             if (this.chartType === 'candle' || this.chartType === 'heiken') {
                 this.renderCandlestickChart(data, indicators);
             } else {
                 this.renderLineChart(data, indicators);
             }
-            
+            if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
             if (data.volumes && data.closes && data.opens) {
                 this.updateVolumeChart(data.volumes, data.closes, data.opens);
             }

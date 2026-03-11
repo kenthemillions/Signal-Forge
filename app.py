@@ -315,10 +315,32 @@ def complete_onboarding():
     logger.info(f"Onboarding completed with settings: {data}")
     return jsonify({'success': True})
 
+def _aggregate_df_to_4h(df):
+    """Aggregate OHLCV DataFrame (e.g. 1h bars) to 4h bars. Groups every 4 rows."""
+    import pandas as pd
+    if len(df) < 4:
+        return df
+    n = len(df) // 4
+    rows = []
+    for i in range(n):
+        start = i * 4
+        end = start + 4
+        chunk = df.iloc[start:end]
+        rows.append({
+            'Open': chunk['Open'].iloc[0],
+            'High': chunk['High'].max(),
+            'Low': chunk['Low'].min(),
+            'Close': chunk['Close'].iloc[-1],
+            'Volume': chunk['Volume'].sum()
+        })
+    return pd.DataFrame(rows)
+
+
 @app.route('/api/institutional/<symbol>')
 def get_institutional_signal(symbol):
-    """Get institutional mode analysis for a symbol"""
+    """Get institutional mode analysis for a symbol. Uses same data source as dashboard (data_fetcher/Alpaca or Yahoo)."""
     try:
+        symbol = symbol.upper()
         timeframe = request.args.get('timeframe', '5m')
         session_rules = None
         
@@ -326,36 +348,54 @@ def get_institutional_signal(symbol):
         if session_str:
             try:
                 session_rules = json.loads(session_str)
-            except:
+            except Exception:
                 pass
         
+        period_map = {
+            '1m': '1d', '5m': '5d', '15m': '5d',
+            '1h': '1mo', '4h': '3mo'
+        }
         interval_map = {
             '1m': '1m', '5m': '5m', '15m': '15m',
-            '1h': '60m', '4h': '60m'
+            '1h': '1h', '4h': '1h'
         }
-        yf_interval = interval_map.get(timeframe, '5m')
+        period = period_map.get(timeframe, '5d')
+        interval = interval_map.get(timeframe, '5m')
         
-        period_map = {
-            '1m': '1d', '5m': '1d', '15m': '5d',
-            '1h': '5d', '4h': '30d'
-        }
-        period = period_map.get(timeframe, '1d')
-        
-        ticker = yf.Ticker(symbol.upper())
-        df = ticker.history(period=period, interval=yf_interval)
-        
-        if df.empty:
+        market_data = data_fetcher.get_stock_data(symbol, period=period, interval=interval)
+        if not market_data or market_data.get('error') or not market_data.get('closes'):
             return jsonify({
                 'state': 'WAIT',
                 'confidence': 0,
                 'bias': 'NEUTRAL',
-                'reasons': ['Unable to fetch data'],
+                'reasons': ['Unable to fetch data for this symbol'],
                 'waiting_for': ['Data connection'],
                 'regime': 'UNKNOWN',
                 'location': 'UNKNOWN',
                 'zone_status': 'UNKNOWN',
                 'confirmations': {}
             })
+        
+        import pandas as pd
+        timestamps = market_data.get('timestamps', [])
+        opens = market_data.get('opens', [])
+        highs = market_data.get('highs', [])
+        lows = market_data.get('lows', [])
+        closes = market_data.get('closes', [])
+        volumes = market_data.get('volumes', [])
+        if timestamps:
+            try:
+                index = pd.DatetimeIndex(pd.to_datetime(timestamps))
+            except Exception:
+                index = pd.RangeIndex(len(closes))
+        else:
+            index = pd.RangeIndex(len(closes))
+        df = pd.DataFrame({
+            'Open': opens, 'High': highs, 'Low': lows, 'Close': closes, 'Volume': volumes
+        }, index=index)
+        
+        if timeframe == '4h' and len(closes) >= 4:
+            df = _aggregate_df_to_4h(df)
         
         signal = institutional_engine.analyze(df, symbol, timeframe, session_rules)
         
@@ -403,27 +443,40 @@ def get_seasonality(symbol):
 
 @app.route('/api/coach', methods=['POST'])
 def ask_coach_endpoint():
-    """Smart Coach - analyze trade questions using signal data or DeepSeek AI"""
-    from signal_engine.indicators import IndicatorCalculator
-    indicator_calc = IndicatorCalculator()
-    
+    """Smart Coach - analyze trade questions using same data as dashboard (data_fetcher + indicator_engine). Optional DeepSeek AI."""
     try:
         data = request.get_json()
         question = data.get('question', '')
-        symbol = data.get('symbol', 'SPY').upper()
+        symbol = (data.get('symbol') or 'SPY').strip().upper()
         use_ai = data.get('use_ai', False)
-        api_key = data.get('api_key', '')
+        api_key = (data.get('api_key') or '').strip()
         
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period='5d', interval='5m')
-        
-        if df.empty:
+        market_data = data_fetcher.get_stock_data(symbol, period='5d', interval='5m')
+        if not market_data or market_data.get('error') or not market_data.get('closes'):
             return jsonify({
                 'success': False,
-                'response': "Couldn't get market data. Try again.",
+                'response': "Couldn't get market data for that symbol. Try again.",
                 'symbol': symbol,
                 'mode': 'error'
             })
+        
+        import pandas as pd
+        timestamps = market_data.get('timestamps', [])
+        opens = market_data.get('opens', [])
+        highs = market_data.get('highs', [])
+        lows = market_data.get('lows', [])
+        closes = market_data.get('closes', [])
+        volumes = market_data.get('volumes', [])
+        if not timestamps:
+            index = pd.RangeIndex(len(closes))
+        else:
+            try:
+                index = pd.DatetimeIndex(pd.to_datetime(timestamps))
+            except Exception:
+                index = pd.RangeIndex(len(closes))
+        df = pd.DataFrame({
+            'Open': opens, 'High': highs, 'Low': lows, 'Close': closes, 'Volume': volumes
+        }, index=index)
         
         signal = institutional_engine.analyze(df, symbol, timeframe='5m')
         institutional_data = {
@@ -437,22 +490,16 @@ def ask_coach_endpoint():
             'reasons': signal.reasons
         }
         
-        prices = df['Close'].tolist()
-        highs = df['High'].tolist()
-        lows = df['Low'].tolist()
-        volumes = df['Volume'].tolist()
-        
-        indicators = {
-            'current_price': round(prices[-1], 2) if prices else 0,
-            'rsi': indicator_calc.calculate_rsi(prices),
-            'macd': indicator_calc.calculate_macd(prices),
-            'bollinger': indicator_calc.calculate_bollinger(prices),
-            'vwap': indicator_calc.calculate_vwap(highs, lows, prices, volumes),
-            'ema': indicator_calc.calculate_ema_set(prices),
-            'volume': indicator_calc.calculate_volume_analysis(volumes),
-            'support_resistance': indicator_calc.calculate_support_resistance(highs, lows, prices),
-            'fibonacci': indicator_calc.calculate_fibonacci(highs, lows, prices, lookback=100)
-        }
+        settings = UserSettings.query.first()
+        indicators = indicator_engine.calculate_all(market_data, settings)
+        if indicators.get('error'):
+            return jsonify({
+                'success': False,
+                'response': "Couldn't compute indicators. Try again.",
+                'symbol': symbol,
+                'mode': 'error'
+            })
+        indicators['current_price'] = market_data.get('current_price') or (closes[-1] if closes else 0)
         
         mode = 'rules'
         response = None
@@ -465,7 +512,7 @@ def ask_coach_endpoint():
         if not response:
             try:
                 seasonality_data = seasonality_analyzer.analyze(symbol)
-            except:
+            except Exception:
                 seasonality_data = None
             response = analyze_trade(question, symbol, institutional_data, seasonality_data)
             mode = 'rules'
@@ -480,7 +527,7 @@ def ask_coach_endpoint():
         logger.error(f"Coach error: {e}")
         return jsonify({
             'success': False,
-            'response': f"Sorry, I couldn't analyze that right now. Try again.",
+            'response': "Sorry, I couldn't analyze that right now. Try again.",
             'error': str(e),
             'mode': 'error'
         }), 500
@@ -537,13 +584,6 @@ def remove_ticker(symbol):
 def get_market_data(symbol):
     period = request.args.get('period', '1d')
     interval = request.args.get('interval', '5m')
-    
-    cache_key = f"{symbol}_{period}_{interval}"
-    if cache_key in data_fetcher._cache:
-        del data_fetcher._cache[cache_key]
-    if cache_key in data_fetcher._cache_expiry:
-        del data_fetcher._cache_expiry[cache_key]
-    
     data = data_fetcher.get_stock_data(symbol, period=period, interval=interval)
     return jsonify(data)
 
@@ -1716,6 +1756,7 @@ def get_multi_timeframe_analysis(symbol):
     symbol = symbol.upper()
     timeframes = {
         '1m': {'period': '1d', 'interval': '1m'},
+        '2m': {'period': '1d', 'interval': '2m'},
         '5m': {'period': '5d', 'interval': '5m'},
         '15m': {'period': '5d', 'interval': '15m'},
         '1h': {'period': '1mo', 'interval': '1h'},
@@ -1822,32 +1863,23 @@ def get_multi_timeframe_analysis(symbol):
 
 @app.route('/api/premarket-analysis/<symbol>')
 def get_premarket_analysis(symbol):
-    """Get premarket trend analysis before market open"""
+    """Get premarket/afterhours trend analysis using data_fetcher for correct prices."""
     try:
         symbol = symbol.upper()
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
-        
-        premarket_price = info.get('preMarketPrice', 0)
-        previous_close = info.get('previousClose', 0)
-        regular_price = info.get('regularMarketPrice', 0)
-        
-        if premarket_price and premarket_price > 0:
-            current = premarket_price
-            change = info.get('preMarketChange', 0) or (premarket_price - regular_price)
-            change_pct = (change / regular_price * 100) if regular_price else 0
+        data = data_fetcher.get_stock_data(symbol, period='1d', interval='5m')
+        if not data or data.get('error'):
+            return jsonify({'error': data.get('error', 'No data'), 'trend': 'UNKNOWN'})
+        current = data.get('current_price') or (data.get('closes', []) and data['closes'][-1]) or 0
+        previous_close = data.get('previous_close') or 0
+        change = data.get('change', 0)
+        change_pct = data.get('change_percent', 0)
+        session_key = (data.get('session') or 'regular').lower()
+        if session_key == 'premarket':
             session = 'PREMARKET'
-        elif info.get('postMarketPrice'):
-            current = info.get('postMarketPrice')
-            change = info.get('postMarketChange', 0) or (current - regular_price)
-            change_pct = (change / regular_price * 100) if regular_price else 0
+        elif session_key == 'afterhours':
             session = 'AFTER HOURS'
         else:
-            current = regular_price
-            change = info.get('regularMarketChange', 0) or (current - previous_close)
-            change_pct = (change / previous_close * 100) if previous_close else 0
             session = 'MARKET'
-        
         if change_pct >= 1.5:
             trend = 'STRONG BULLISH'
             direction = 'UP'
@@ -1883,14 +1915,13 @@ def get_premarket_analysis(symbol):
             direction = 'FLAT'
             color = '#F59E0B'
             outlook = 'Expecting flat open near previous close'
-        
         return jsonify({
             'symbol': symbol,
             'session': session,
-            'current_price': round(current, 2),
-            'previous_close': round(previous_close, 2),
-            'change': round(change, 2),
-            'change_percent': round(change_pct, 2),
+            'current_price': round(float(current), 2),
+            'previous_close': round(float(previous_close), 2),
+            'change': round(float(change), 2),
+            'change_percent': round(float(change_pct), 2),
             'trend': trend,
             'direction': direction,
             'color': color,
@@ -2005,6 +2036,21 @@ def lottery_play_scan():
     """
     try:
         tickers = Ticker.query.filter_by(is_active=True).all()
+        if not tickers:
+            return jsonify({
+                'success': True,
+                'in_last_hour_window': _is_last_hour_window_et(),
+                'scan_time': datetime.now().strftime('%I:%M:%S %p'),
+                'lottery_picks': [],
+                'total_scanned': 0,
+                'qualifying': 0,
+                'message': 'Add tickers to your watchlist to run the lottery scan.',
+                'disclaimer': {
+                    'warning': 'OPTIONS ARE RISKY - TRADE AT YOUR OWN DISCRETION',
+                    'purpose': 'These alerts are for EDUCATIONAL PURPOSES ONLY',
+                    'advice': 'Never risk more than you can afford to lose. Past performance does not guarantee future results.'
+                }
+            })
         settings = UserSettings.query.first()
         in_last_hour = _is_last_hour_window_et()
         lottery_candidates = []
@@ -2016,8 +2062,11 @@ def lottery_play_scan():
                 
                 if not data or 'closes' not in data or len(data['closes']) < 20:
                     continue
+                if data.get('error'):
+                    continue
                 
-                current_price = data['closes'][-1]
+                current_price = data.get('current_price') or data['closes'][-1]
+                current_price = float(current_price)
                 volumes = data.get('volumes', [])
                 
                 indicators = indicator_engine.calculate_all(data, settings)
@@ -2185,11 +2234,15 @@ def lottery_play_scan():
 def _is_last_hour_window_et():
     """True if current time is 3:00 PM - 4:15 PM ET (last trading hour / lottery window)."""
     try:
-        import pytz
-        et = pytz.timezone('America/New_York')
+        from datetime import time
+        try:
+            from zoneinfo import ZoneInfo
+            et = ZoneInfo('America/New_York')
+        except ImportError:
+            import pytz
+            et = pytz.timezone('America/New_York')
         now = datetime.now(et)
         t = now.time()
-        from datetime import time
         return time(15, 0) <= t < time(16, 16)
     except Exception:
         return False
@@ -2204,6 +2257,14 @@ def last_hour_strong_scan():
     """
     try:
         tickers = Ticker.query.filter_by(is_active=True).all()
+        if not tickers:
+            return jsonify({
+                'success': True,
+                'in_last_hour_window': _is_last_hour_window_et(),
+                'strongest_plays': [],
+                'scan_time': datetime.now().strftime('%I:%M %p ET'),
+                'message': 'Add tickers to your watchlist to run the last-hour scan.',
+            })
         settings = UserSettings.query.first()
         in_window = _is_last_hour_window_et()
         last_hour_minutes = 75
@@ -2213,6 +2274,8 @@ def last_hour_strong_scan():
                 symbol = ticker.symbol
                 data = data_fetcher.get_stock_data(symbol, period='1d', interval='1m')
                 if not data or 'closes' not in data or len(data['closes']) < 20:
+                    continue
+                if data.get('error'):
                     continue
                 closes = data['closes']
                 opens_arr = data.get('opens', closes)
@@ -2227,6 +2290,7 @@ def last_hour_strong_scan():
                 slice_volumes = volumes[-n:] if len(volumes) >= n else [1] * n
                 open_75 = slice_closes[0] if slice_closes else closes[-1]
                 close_now = slice_closes[-1]
+                display_price = data.get('current_price') or close_now
                 last_hour_move_pct = (close_now - open_75) / open_75 * 100 if open_75 else 0
                 avg_vol = sum(slice_volumes) / len(slice_volumes) if slice_volumes else 1
                 recent_vol = slice_volumes[-1] if slice_volumes else 1
@@ -2274,7 +2338,7 @@ def last_hour_strong_scan():
                     'volume_ratio': round(vol_ratio, 2),
                     'rsi': round(rsi, 1),
                     'reason': ' · '.join(reason_parts),
-                    'current_price': round(close_now, 2),
+                    'current_price': round(float(display_price), 2),
                     'label': f"{symbol} strong {play}",
                 })
             except Exception:
@@ -2302,13 +2366,24 @@ def last_hour_strong_scan():
 def market_open_scan():
     """
     Market Open Scanner - Finds top 3 trending stocks at open
-    Scans at premarket, 5min, 15min, and 30min after open
+    Scans at premarket, 5min, 15min, and 30min after open.
+    Premarket phase: move is vs previous close. Other phases: move is from session open.
     """
     try:
         scan_phase = request.args.get('phase', '5min')
         tickers = Ticker.query.filter_by(is_active=True).all()
+        if not tickers:
+            return jsonify({
+                'success': True,
+                'scan_time': datetime.now().strftime('%I:%M:%S %p'),
+                'scan_phase': scan_phase,
+                'phase_label': {'premarket': 'Pre-Market', '5min': 'First 5 Minutes', '15min': 'First 15 Minutes', '30min': 'First 30 Minutes'}.get(scan_phase, scan_phase),
+                'trending_picks': [],
+                'total_scanned': 0,
+                'qualifying': 0,
+                'tip': 'Add tickers to your watchlist to run the market open scan.',
+            })
         settings = UserSettings.query.first()
-        
         trending_candidates = []
         
         for ticker in tickers:
@@ -2318,16 +2393,24 @@ def market_open_scan():
                 
                 if not data or 'closes' not in data or len(data['closes']) < 10:
                     continue
+                if data.get('error'):
+                    continue
                 
                 closes = data['closes']
                 opens_arr = data.get('opens', closes)
                 volumes = data.get('volumes', [])
                 
                 current_price = data.get('current_price') or closes[-1]
-                open_price = opens_arr[0] if opens_arr else current_price
-                
-                price_change = current_price - open_price
-                price_change_pct = (price_change / open_price * 100) if open_price > 0 else 0
+                current_price = float(current_price)
+                if scan_phase == 'premarket':
+                    previous_close = data.get('previous_close') or (opens_arr[0] if opens_arr else current_price)
+                    open_price = float(previous_close) if previous_close else current_price
+                    price_change = current_price - open_price
+                    price_change_pct = float(data.get('change_percent', (price_change / open_price * 100) if open_price else 0))
+                else:
+                    open_price = float(opens_arr[0]) if opens_arr else current_price
+                    price_change = current_price - open_price
+                    price_change_pct = (price_change / open_price * 100) if open_price > 0 else 0
                 
                 indicators = indicator_engine.calculate_all(data, settings)
                 rsi = indicators.get('rsi', {}).get('value', 50)
