@@ -1,4 +1,4 @@
-// Full app boot; DOM ready via readyState check so boot runs even if DOMContentLoaded already fired.
+// Full app boot; DOM ready via readyState check. Add-ticker: currentTicker + loadTickerCardQuote(symbol) so card switches. v7ac4626-redeploy
 window.__MINIMAL_BOOT = false;
 
 function setBootStage(id, value) {
