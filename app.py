@@ -5,7 +5,7 @@ import os
 import time
 import logging
 
-from flask import Flask, render_template, jsonify, request, redirect, url_for, session
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session, make_response
 from flask_socketio import SocketIO, emit
 from datetime import datetime
 import json
@@ -175,7 +175,9 @@ def landing():
 @login_required
 def dashboard():
     static_version = os.environ.get('RENDER_GIT_COMMIT', str(int(time.time())))
-    return render_template('dashboard.html', current_user=get_current_user(), static_version=static_version)
+    resp = make_response(render_template('dashboard.html', current_user=get_current_user(), static_version=static_version))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    return resp
 
 @app.route('/login', methods=['GET'])
 def login_page():

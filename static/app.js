@@ -245,7 +245,7 @@ class TradingSignalsApp {
             }
             this.clearLoadingState();
         }
-        
+        await this.loadTickerCardQuote();
         this.loadSettings();
         this.loadSignals();
         
@@ -2605,6 +2605,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
      */
     async loadTickerCardQuote() {
         const sym = (this.currentTicker || 'SPY').trim().toUpperCase();
+        console.log('LOAD TICKER CARD QUOTE RUNNING', sym);
         const currentPriceEl = document.getElementById('current-price');
         const priceChangeEl = document.getElementById('price-change');
         const lastUpdatedEl = document.getElementById('last-updated');
@@ -2639,6 +2640,8 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
                 priceChangeEl.innerHTML = `<span class="${change >= 0 ? 'text-success' : 'text-danger'}">${sign}${change.toFixed(2)} (${pctStr})</span>`;
             }
             if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const sessionText = document.getElementById('session-text');
+            if (sessionText && /Loading|Connecting/.test(sessionText.textContent)) sessionText.textContent = 'Live';
         } catch (e) {
             this.setPriceCardError('Backend unavailable', e && e.message ? e.message : 'Request failed');
             if (priceChangeEl) priceChangeEl.textContent = '—';
@@ -2647,6 +2650,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
 
     async refreshData() {
+        console.log('REFRESH DATA RUNNING', this.currentTicker || 'SPY');
         const refreshBtn = document.getElementById('refresh-signal');
         const refreshText = document.getElementById('refresh-btn-text');
         const lastRefreshEl = document.getElementById('last-refresh-time');
@@ -3078,17 +3082,8 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
     
     async loadTradeRecommendation() {
+        console.log('LOAD TRADE RECOMMENDATION RUNNING', this.currentTicker || 'SPY');
         const requestedSymbol = (this.currentTicker || '').toUpperCase();
-        const currentPriceEl = document.getElementById('current-price');
-        const priceChangeEl = document.getElementById('price-change');
-        const lastUpdatedEl = document.getElementById('last-updated');
-        const cardHasPrice = () => currentPriceEl && /^\$[\d,]+\.?\d*$/.test(currentPriceEl.textContent.trim());
-        const setPlaceholder = () => {
-            if (cardHasPrice()) return;
-            if (currentPriceEl) currentPriceEl.innerHTML = '<span class="text-muted">Click Refresh for live price</span>';
-            if (priceChangeEl) priceChangeEl.textContent = '—';
-            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
-        };
         try {
             const cacheBuster = Date.now();
             const ac = new AbortController();
@@ -3099,39 +3094,22 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             try {
                 data = await response.json();
             } catch (_) {
-                if (!cardHasPrice()) this.setPriceCardError('API error', 'Invalid JSON from trade-recommendation');
-                setPlaceholder();
                 return;
             }
-            if (!response.ok) {
-                if (!cardHasPrice()) this.setPriceCardError('API error', 'trade-recommendation ' + response.status);
-                setPlaceholder();
-                return;
-            }
+            if (!response.ok) return;
             if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
             if (data.error || !data.current_price) {
                 console.warn('Trade recommendation:', data.error || 'No price data');
-                if (!cardHasPrice()) this.setPriceCardError('No data returned', data.error || 'No price data');
-                setPlaceholder();
                 return;
             }
-            
             this.updateTrafficLight(data.main_signal);
             this.updateMainSignalPanel(data);
             this.updateRecommendationPanels(data);
             this.updateIndicatorsSummary(data.indicators);
-            this.updatePriceDisplay(data);
             this.updateKeyLevels(data.indicators.support_resistance, data.current_price);
             if (typeof this.loadScalpingLevels === 'function') this.loadScalpingLevels();
             this.checkHotStock(data);
             this.handleTrendReversalAlert(data);
-            
-            const lastUpdated = document.getElementById('last-updated');
-            if (lastUpdated) {
-                const now = new Date();
-                lastUpdated.textContent = 'Updated: ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            }
-            
             const isNewSignal = this.lastSignal?.type !== data.main_signal;
             if (isNewSignal && data.main_signal !== 'WAIT' && this.audioEnabled) {
                 if (data.main_signal === 'BUY' || data.main_signal === 'STRONG BUY') {
@@ -3155,8 +3133,6 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             
         } catch (error) {
             console.warn('Trade recommendation load failed:', error);
-            if (!cardHasPrice()) this.setPriceCardError('Backend unavailable', (error && error.message) ? error.message : 'trade-recommendation failed');
-            setPlaceholder();
         }
     }
     
