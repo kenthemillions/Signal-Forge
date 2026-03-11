@@ -76,10 +76,18 @@ class MarketDataFetcher:
             if df.empty:
                 df = ticker.history(period=period, interval=interval, prepost=False)
                 if df.empty:
-                    return {'error': f'No data available for {symbol}'}
+                    return {'error': f'No data available for {symbol}', 'symbol': symbol}
             
+            def _safe_float(v, default=0):
+                try:
+                    if v is None or (isinstance(v, float) and np.isnan(v)):
+                        return default
+                    return float(v)
+                except (TypeError, ValueError):
+                    return default
+
             # Primary: last close from history (includes extended hours when prepost=True)
-            intraday_last = float(df['Close'].iloc[-1]) if len(df) > 0 else 0
+            intraday_last = _safe_float(df['Close'].iloc[-1] if len(df) > 0 else None)
             
             info = {}
             try:
@@ -243,11 +251,19 @@ class MarketDataFetcher:
             price = info.get('currentPrice') or info.get('regularMarketPrice') or fast_price or 0
             prev = info.get('regularMarketPreviousClose') or info.get('previousClose')
             if price and prev:
-                change = price - prev
-                change_pct = (change / prev) * 100
+                try:
+                    change = float(price) - float(prev)
+                    change_pct = (change / float(prev)) * 100 if prev else 0
+                except (TypeError, ValueError):
+                    change = 0
+                    change_pct = 0
             else:
-                change = info.get('regularMarketChange', 0) or 0
-                change_pct = info.get('regularMarketChangePercent', 0) or 0
+                change = info.get('regularMarketChange')
+                change_pct = info.get('regularMarketChangePercent')
+                if change is None:
+                    change = 0
+                if change_pct is None:
+                    change_pct = 0
             return {
                 'symbol': symbol,
                 'price': float(price) if price is not None else 0,

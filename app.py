@@ -49,6 +49,41 @@ _db_ready = False
 _DEFAULT_TICKERS = [{'symbol': s} for s in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'SLV', 'GLD']]
 
 
+def _normalized_quote(symbol: str):
+    """
+    Single adapter: Yahoo (data_fetcher) -> one stable format for frontend.
+    Returns dict with keys: symbol, price, change, percentChange OR error.
+    Never raises; never returns None.
+    """
+    symbol = (symbol or '').strip().upper()
+    if not symbol:
+        return {'error': 'Missing symbol', 'symbol': ''}
+    try:
+        logger.info('market_data request symbol=%s upstream=yfinance get_stock_data', symbol)
+        data = data_fetcher.get_stock_data(symbol, period='1d', interval='1m')
+        if not data:
+            logger.warning('market_data symbol=%s upstream returned None', symbol)
+            return {'error': 'No data', 'symbol': symbol}
+        if data.get('error'):
+            logger.warning('market_data symbol=%s upstream error=%s', symbol, data.get('error'))
+            return {'error': data.get('error', 'Unknown'), 'symbol': symbol}
+        price = data.get('current_price')
+        if price is None or (isinstance(price, (int, float)) and price <= 0):
+            logger.warning('market_data symbol=%s no valid current_price', symbol)
+            return {'error': 'No price', 'symbol': symbol}
+        out = {
+            'symbol': symbol,
+            'price': round(float(price), 2),
+            'change': round(float(data.get('change', 0)), 2),
+            'percentChange': round(float(data.get('change_percent', 0)), 2),
+        }
+        logger.info('market_data symbol=%s status=ok price=%s', symbol, out['price'])
+        return out
+    except Exception as e:
+        logger.exception('market_data symbol=%s exception=%s', symbol, e)
+        return {'error': str(e), 'symbol': symbol}
+
+
 def _init_db():
     global _db_ready
     try:
@@ -545,6 +580,23 @@ def ask_coach_endpoint():
 def coach_status():
     return jsonify({'server_ai_available': bool(Config.DEEPSEEK_API_KEY)})
 
+
+@app.route('/api/test-quote')
+def test_quote():
+    """Minimal quote for stack verification. Always 200 + JSON."""
+    symbol = request.args.get('symbol') or 'SPY'
+    out = _normalized_quote(symbol)
+    return jsonify(out), 200
+
+
+@app.route('/api/quote')
+def api_quote():
+    """Quote for ticker card. Same normalized format as test-quote. Always 200 + JSON."""
+    symbol = request.args.get('symbol') or 'SPY'
+    out = _normalized_quote(symbol)
+    return jsonify(out), 200
+
+
 @app.route('/api/tickers')
 def get_tickers():
     if not _db_ready:
@@ -599,23 +651,35 @@ def remove_ticker(symbol):
 
 @app.route('/api/market-data/<symbol>')
 def get_market_data(symbol):
+    symbol = (symbol or '').strip().upper()
+    period = request.args.get('period', '1d')
+    interval = request.args.get('interval', '5m')
+    logger.info('market_data symbol=%s period=%s interval=%s', symbol, period, interval)
     try:
-        period = request.args.get('period', '1d')
-        interval = request.args.get('interval', '5m')
-        data = data_fetcher.get_stock_data((symbol or '').upper(), period=period, interval=interval)
-        return jsonify(data if data else {'error': 'No data'})
+        data = data_fetcher.get_stock_data(symbol, period=period, interval=interval)
+        if not data:
+            logger.warning('market_data symbol=%s returned None', symbol)
+            return jsonify({'error': 'No data', 'closes': [], 'timestamps': [], 'opens': [], 'highs': [], 'lows': [], 'volumes': []}), 200
+        if data.get('error'):
+            logger.warning('market_data symbol=%s error=%s', symbol, data.get('error'))
+            return jsonify({**data, 'closes': data.get('closes', []), 'timestamps': data.get('timestamps', []), 'opens': data.get('opens', []), 'highs': data.get('highs', []), 'lows': data.get('lows', []), 'volumes': data.get('volumes', [])}), 200
+        logger.info('market_data symbol=%s status=ok bars=%s', symbol, len(data.get('closes', [])))
+        return jsonify(data), 200
     except Exception as e:
-        logger.warning('Market data failed for %s: %s', symbol, e)
-        return jsonify({'error': 'Failed to fetch data', 'closes': [], 'timestamps': []})
+        logger.exception('market_data symbol=%s exception=%s', symbol, e)
+        return jsonify({'error': str(e), 'closes': [], 'timestamps': [], 'opens': [], 'highs': [], 'lows': [], 'volumes': []}), 200
 
 @app.route('/api/indicators/<symbol>')
 def get_indicators(symbol):
+    symbol = (symbol or '').strip().upper()
+    period = request.args.get('period', '5d')
+    interval = request.args.get('interval', '5m')
+    logger.info('indicators symbol=%s period=%s interval=%s', symbol, period, interval)
     try:
-        period = request.args.get('period', '5d')
-        interval = request.args.get('interval', '5m')
-        data = data_fetcher.get_stock_data((symbol or '').upper(), period=period, interval=interval)
+        data = data_fetcher.get_stock_data(symbol, period=period, interval=interval)
         if not data or data.get('error'):
-            return jsonify({'error': 'Failed to fetch data'})
+            logger.warning('indicators symbol=%s no data or error=%s', symbol, data.get('error') if data else 'None')
+            return jsonify({'error': data.get('error', 'Failed to fetch data') if data else 'No data'}), 200
         indicators = indicator_engine.calculate_all(data)
         import numpy as np
         opens = np.array(data.get('opens', []))
@@ -624,10 +688,11 @@ def get_indicators(symbol):
         closes = np.array(data.get('closes', []))
         if len(closes) > 1:
             indicators['heiken_ashi'] = indicator_engine.calculate_heiken_ashi(opens, highs, lows, closes)
-        return jsonify(indicators)
+        logger.info('indicators symbol=%s status=ok', symbol)
+        return jsonify(indicators), 200
     except Exception as e:
-        logger.warning('Indicators failed for %s: %s', symbol, e)
-        return jsonify({'error': 'Failed to fetch data'})
+        logger.exception('indicators symbol=%s exception=%s', symbol, e)
+        return jsonify({'error': str(e)}), 200
 
 @app.route('/api/signals')
 def get_signals():
@@ -1034,10 +1099,11 @@ def classify_signal_with_guardrails(raw_signal, confidence_pct, volume_ratio, rs
 
 @app.route('/api/trade-recommendation/<symbol>')
 def get_trade_recommendation(symbol):
-    """Get actionable trade recommendation with strikes, entries, targets"""
-    symbol = (symbol or '').upper()
+    """Get actionable trade recommendation. Always 200 + JSON."""
+    symbol = (symbol or '').strip().upper()
+    logger.info('trade_recommendation symbol=%s', symbol)
     if not symbol:
-        return jsonify({'error': 'Symbol required', 'current_price': None, 'has_signal': False})
+        return jsonify({'error': 'Symbol required', 'current_price': None, 'main_signal': 'WAIT', 'has_signal': False}), 200
     try:
         cache_key = f"{symbol}_5d_5m"
         if cache_key in getattr(data_fetcher, '_cache', {}):
@@ -1045,8 +1111,12 @@ def get_trade_recommendation(symbol):
         if cache_key in getattr(data_fetcher, '_cache_expiry', {}):
             data_fetcher._cache_expiry.pop(cache_key, None)
         data = data_fetcher.get_stock_data(symbol, period='5d', interval='5m')
-        if not data or data.get('error'):
-            return jsonify({'error': 'Failed to fetch data', 'current_price': None, 'main_signal': 'WAIT', 'has_signal': False})
+        if not data:
+            logger.warning('trade_recommendation symbol=%s upstream returned None', symbol)
+            return jsonify({'error': 'No data', 'current_price': None, 'main_signal': 'WAIT', 'has_signal': False}), 200
+        if data.get('error'):
+            logger.warning('trade_recommendation symbol=%s upstream error=%s', symbol, data.get('error'))
+            return jsonify({'error': data.get('error', 'Failed to fetch data'), 'current_price': None, 'main_signal': 'WAIT', 'has_signal': False}), 200
         settings = UserSettings.query.first() if _db_ready else None
         indicators = indicator_engine.calculate_all(data, settings)
         signal = strategy_orchestrator.generate_signal(symbol, indicators, data, settings)
@@ -1362,8 +1432,8 @@ def get_trade_recommendation(symbol):
         'last_updated': datetime.now().isoformat()
     })
     except Exception as e:
-        logger.warning('Trade recommendation failed: %s', e)
-        return jsonify({'error': 'Server busy. Try again.', 'current_price': None, 'main_signal': 'WAIT', 'has_signal': False, 'summary': 'Click Refresh to retry.'})
+        logger.exception('trade_recommendation symbol=%s exception=%s', symbol, e)
+        return jsonify({'error': str(e), 'current_price': None, 'main_signal': 'WAIT', 'has_signal': False, 'summary': 'Click Refresh to retry.'}), 200
 
 @app.route('/api/pivot-points/<symbol>')
 def get_pivot_points(symbol):

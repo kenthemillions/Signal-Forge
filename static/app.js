@@ -233,6 +233,7 @@ class TradingSignalsApp {
             await this.loadTickers();
         } catch (e) {
             console.error('loadTickers failed:', e);
+            this.setPriceCardError('Backend unavailable', (e && e.message) ? e.message : 'Tickers failed');
             const sel = document.getElementById('ticker-select');
             if (sel && sel.options.length === 0) {
                 const opt = document.createElement('option');
@@ -263,9 +264,10 @@ class TradingSignalsApp {
         setTimeout(() => this.clearLoadingState(), 3000);
         this.startLoadingTimeout();
         
-        // Run refresh in background so UI (ticker list, placeholders) shows immediately
+        // Run refresh so ticker card gets price/change or explicit error
         this.refreshData().catch(e => {
             console.warn('Initial refresh failed:', e);
+            this.setPriceCardError('Backend unavailable', (e && e.message) ? e.message : 'Refresh failed');
             this.clearLoadingState();
         });
     }
@@ -2493,8 +2495,15 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             const timeoutId = setTimeout(() => controller.abort(), 12000);
             const response = await fetch('/api/market-status', { signal: controller.signal });
             clearTimeout(timeoutId);
+            if (!response.ok) {
+                this.setPriceCardError('API error', 'market-status ' + response.status);
+                throw new Error('market-status ' + response.status);
+            }
             const status = await response.json();
-            if (!status || !status.current_session) throw new Error('No status');
+            if (!status || !status.current_session) {
+                this.setPriceCardError('No data returned', 'market-status empty');
+                throw new Error('No status');
+            }
             if (badge) {
                 badge.textContent = status.current_session.replace(/_/g, ' ');
                 badge.className = 'badge ' + (status.is_market_open ? 'bg-success' : 'bg-secondary');
@@ -2509,6 +2518,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             if (lotteryCountdown) lotteryCountdown.textContent = status.countdowns?.lottery_hour || '--:--:--';
             this.updateSessionBanner(status);
         } catch (error) {
+            this.setPriceCardError('Backend unavailable', (error && error.message) ? error.message : 'market-status failed');
             if (badge) { badge.textContent = '—'; badge.className = 'badge bg-secondary'; }
             if (textEl) textEl.textContent = 'Data loaded. Click Refresh when server is ready.';
             this.updateSessionBanner(null);
@@ -2658,6 +2668,20 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         if (input) input.placeholder = `e.g. Is this a good buy for ${sym} calls?`;
     }
     
+    /**
+     * Set ticker card to show a terminal error state (no infinite loading).
+     */
+    setPriceCardError(title, detail) {
+        const currentPriceEl = document.getElementById('current-price');
+        const priceChangeEl = document.getElementById('price-change');
+        const lastUpdatedEl = document.getElementById('last-updated');
+        if (currentPriceEl) {
+            currentPriceEl.innerHTML = '<span class="text-warning">' + (title || 'No data') + (detail ? ': ' + this.escapeHtml(detail) : '') + '</span>';
+        }
+        if (priceChangeEl) priceChangeEl.textContent = '—';
+        if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+    }
+
     clearLoadingState() {
         const badge = document.getElementById('market-status');
         const textEl = document.getElementById('session-text');
@@ -3026,6 +3050,12 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             try {
                 data = await response.json();
             } catch (_) {
+                this.setPriceCardError('API error', 'Invalid JSON from trade-recommendation');
+                setPlaceholder();
+                return;
+            }
+            if (!response.ok) {
+                this.setPriceCardError('API error', 'trade-recommendation ' + response.status);
                 setPlaceholder();
                 return;
             }
@@ -3034,6 +3064,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             
             if (data.error || !data.current_price) {
                 console.warn('Trade recommendation:', data.error || 'No price data');
+                this.setPriceCardError('No data returned', data.error || 'No price data');
                 setPlaceholder();
                 return;
             }
@@ -3077,6 +3108,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             
         } catch (error) {
             console.warn('Trade recommendation load failed:', error);
+            this.setPriceCardError('Backend unavailable', (error && error.message) ? error.message : 'trade-recommendation failed');
             setPlaceholder();
         }
     }
@@ -3979,29 +4011,50 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             clearTimeout(timeoutId);
             const data = await res.json().catch(() => ({}));
             
+            input.value = '';
+            const select = document.getElementById('ticker-select');
+            let firstSymbol = (raw.replace(/,/g, ' ').split(/\s+/).map(s => s.trim().toUpperCase()).filter(Boolean))[0] || raw.trim().toUpperCase();
+
             if (!res.ok) {
-                const msg = data.error || 'Failed to add ticker';
-                this.showTickerToast(msg, 'danger');
+                this.showTickerToast((data.error || 'Could not save to list') + '; loading data…', 'warning');
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Add'; }
+                if (select && firstSymbol) {
+                    const exists = Array.from(select.options).some(opt => opt.value === firstSymbol);
+                    if (!exists) {
+                        const opt = document.createElement('option');
+                        opt.value = firstSymbol;
+                        opt.textContent = firstSymbol;
+                        select.appendChild(opt);
+                    }
+                    select.value = firstSymbol;
+                    this.currentTicker = firstSymbol;
+                    this.showTickerLoading(true);
+                    await this.refreshData();
+                }
+                const modal = bootstrap.Modal.getInstance(document.getElementById('addTickerModal'));
+                if (modal) modal.hide();
                 return;
             }
             if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Add'; }
-            
-            input.value = '';
-            
+
             const added = data.added || (data.symbol ? [data] : []);
             const errors = data.errors || [];
             added.forEach(t => { this.scannerTickerSelection[t.symbol] = true; });
             this.saveScannerSelection();
-            
+
             await this.loadTickers();
-            
+
             if (added.length) {
-                this.showTickerToast(`Added: ${added.map(t => t.symbol).join(', ')}. Loading data…`, 'success');
-                const firstSymbol = added[0].symbol || added[0];
+                firstSymbol = added[0].symbol || added[0];
                 this.currentTicker = firstSymbol;
-                const select = document.getElementById('ticker-select');
                 if (select) select.value = firstSymbol;
+                this.showTickerToast(`Added: ${added.map(t => t.symbol).join(', ')}. Loading data…`, 'success');
+                this.showTickerLoading(true);
+                await this.refreshData();
+            } else if (firstSymbol && select && Array.from(select.options).some(opt => opt.value === firstSymbol)) {
+                this.currentTicker = firstSymbol;
+                select.value = firstSymbol;
+                this.showTickerLoading(true);
                 await this.refreshData();
             }
             if (errors.length) this.showTickerToast(errors.slice(0, 3).join('; '), 'warning');
