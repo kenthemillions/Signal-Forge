@@ -1,8 +1,20 @@
+console.log('APP VERSION 2026-03-11-quote-fix-1');
+
 class TradingSignalsApp {
     constructor() {
         this.socket = null;
         this.chart = null;
         this.currentTicker = 'SPY';
+        this._quoteDebug = {
+            refreshDataCalled: false,
+            loadTickerCardQuoteCalled: false,
+            quoteRequestStarted: false,
+            quoteUrl: '--',
+            quoteStatus: '--',
+            quoteBody: '--',
+            domUpdateSuccess: false,
+            lastTouch: '--'
+        };
         this.audioEnabled = true;
         this.audioVolume = 0.5;
         this.settings = {};
@@ -40,6 +52,22 @@ class TradingSignalsApp {
         this.signalHistory = this.loadSignalHistory();
         
         this.init();
+    }
+    
+    _updateQuoteDebug(updates) {
+        if (!this._quoteDebug) return;
+        Object.assign(this._quoteDebug, updates);
+        const d = this._quoteDebug;
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = String(val ?? '--'); };
+        set('debug-current-ticker', this.currentTicker || '--');
+        set('debug-refresh-called', d.refreshDataCalled ? 'yes' : 'no');
+        set('debug-quote-called', d.loadTickerCardQuoteCalled ? 'yes' : 'no');
+        set('debug-request-started', d.quoteRequestStarted ? 'yes' : 'no');
+        set('debug-quote-url', d.quoteUrl);
+        set('debug-quote-status', d.quoteStatus);
+        set('debug-quote-body', (d.quoteBody && d.quoteBody.length > 80) ? d.quoteBody.substring(0, 80) + '...' : d.quoteBody);
+        set('debug-dom-ok', d.domUpdateSuccess ? 'yes' : 'no');
+        set('debug-last-touch', d.lastTouch);
     }
     
     loadSignalHistory() {
@@ -210,9 +238,10 @@ class TradingSignalsApp {
     }
     
     async init() {
+        this._updateQuoteDebug({});
         const sessionText = document.getElementById('session-text');
         if (sessionText) sessionText.textContent = 'Loading…';
-        await this.loadTickerCardQuote();
+        this.loadTickerCardQuote().catch(() => {});
         this.initAudioContext();
         this.initSocket();
         this.initChart();
@@ -1292,17 +1321,8 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         });
         
         this.socket.on('price_update', (data) => {
-            if (data.symbol === this.currentTicker) {
-                const priceEl = document.getElementById('current-price');
-                const changeEl = document.getElementById('price-change');
-                if (priceEl) priceEl.textContent = `$${data.price.toFixed(2)}`;
-                if (changeEl) {
-                    const sign = data.change >= 0 ? '+' : '';
-                    changeEl.textContent = `${sign}${data.change.toFixed(2)} (${sign}${data.change_percent.toFixed(2)}%)`;
-                    changeEl.className = data.change >= 0 ? 'text-success' : 'text-danger';
-                }
-                this.lastPrice = data.price;
-            }
+            if (data.symbol === this.currentTicker) this.lastPrice = data.price;
+            // BYPASS: only loadTickerCardQuote may touch price card
         });
         
         this.socket.on('new_signal', (signal) => {
@@ -2599,64 +2619,76 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
     
     /**
-     * Fetch /api/quote and update ticker card immediately. Terminal state: price/change or error.
+     * ONLY function that may write to #current-price, #price-change, #last-updated.
+     * Dumb and direct: fetch /api/quote, then set DOM or show exact error.
      */
     async loadTickerCardQuote() {
         const sym = (this.currentTicker || 'SPY').trim().toUpperCase();
-        console.log('LOAD TICKER CARD QUOTE RUNNING', sym);
         const currentPriceEl = document.getElementById('current-price');
         const priceChangeEl = document.getElementById('price-change');
         const lastUpdatedEl = document.getElementById('last-updated');
-        if (!currentPriceEl) return;
+        this._updateQuoteDebug({ loadTickerCardQuoteCalled: true, lastTouch: 'loadTickerCardQuote (entry)' });
+        if (!currentPriceEl) {
+            this._updateQuoteDebug({ lastTouch: 'loadTickerCardQuote (no #current-price)' });
+            return;
+        }
+        const url = `/api/quote?symbol=${encodeURIComponent(sym)}`;
+        this._updateQuoteDebug({ quoteRequestStarted: true, quoteUrl: url, lastTouch: 'loadTickerCardQuote (fetch start)' });
+        let response;
+        let data;
         try {
-            const ac = new AbortController();
-            const t = setTimeout(() => ac.abort(), 10000);
-            const r = await fetch(`/api/quote?symbol=${encodeURIComponent(sym)}`, { signal: ac.signal });
-            clearTimeout(t);
-            const data = await r.json().catch(() => null);
-            if (data === null) {
-                this.setPriceCardError('Invalid quote response', 'Not JSON');
-                const st = document.getElementById('session-text');
-                if (st) st.textContent = 'Invalid response — try Refresh';
-                return;
+            response = await fetch(url);
+            this._updateQuoteDebug({ quoteStatus: response.status, quoteBody: '(parsing...)', lastTouch: 'loadTickerCardQuote (got response)' });
+            const raw = await response.text();
+            try {
+                data = JSON.parse(raw);
+            } catch (_) {
+                data = null;
             }
-            if (data.error) {
-                this.setPriceCardError('No data returned', data.error);
-                if (priceChangeEl) priceChangeEl.textContent = '—';
-                if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
-                const st = document.getElementById('session-text');
-                if (st) st.textContent = 'Quote error: ' + (data.error || 'No data');
-                return;
-            }
-            const price = data.price != null ? Number(data.price) : NaN;
-            const change = data.change != null ? Number(data.change) : 0;
-            const pct = data.percentChange != null ? Number(data.percentChange) : 0;
-            if (isNaN(price) || price <= 0) {
-                this.setPriceCardError('No data returned', 'Missing or invalid price');
-                const st = document.getElementById('session-text');
-                if (st) st.textContent = 'Quote error: invalid price';
-                return;
-            }
-            currentPriceEl.innerHTML = '$' + price.toFixed(2);
-            if (priceChangeEl) {
-                const sign = change >= 0 ? '+' : '';
-                const pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
-                priceChangeEl.innerHTML = `<span class="${change >= 0 ? 'text-success' : 'text-danger'}">${sign}${change.toFixed(2)} (${pctStr})</span>`;
-            }
-            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const sessionText = document.getElementById('session-text');
-            if (sessionText && /Loading|Connecting/.test(sessionText.textContent)) sessionText.textContent = 'Live';
+            this._updateQuoteDebug({ quoteBody: raw.length > 120 ? raw.substring(0, 120) + '...' : raw });
         } catch (e) {
-            this.setPriceCardError('Backend unavailable', e && e.message ? e.message : 'Request failed');
+            this._updateQuoteDebug({ quoteStatus: 'err', quoteBody: (e && e.message) || String(e), lastTouch: 'loadTickerCardQuote (catch)' });
+            currentPriceEl.innerHTML = '<span class="text-warning">Error: ' + this.escapeHtml((e && e.message) || 'Request failed') + '</span>';
             if (priceChangeEl) priceChangeEl.textContent = '—';
             if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
-            const st = document.getElementById('session-text');
-            if (st) st.textContent = 'Backend unavailable — try Refresh';
+            return;
         }
+        if (data === null) {
+            this._updateQuoteDebug({ domUpdateSuccess: false, lastTouch: 'loadTickerCardQuote (not JSON)' });
+            currentPriceEl.innerHTML = '<span class="text-warning">Invalid quote response (not JSON)</span>';
+            if (priceChangeEl) priceChangeEl.textContent = '—';
+            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+            return;
+        }
+        if (data.error) {
+            this._updateQuoteDebug({ domUpdateSuccess: false, lastTouch: 'loadTickerCardQuote (API error)' });
+            currentPriceEl.innerHTML = '<span class="text-warning">' + this.escapeHtml(data.error) + '</span>';
+            if (priceChangeEl) priceChangeEl.textContent = '—';
+            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+            return;
+        }
+        const price = data.price != null ? Number(data.price) : NaN;
+        const change = data.change != null ? Number(data.change) : 0;
+        const pct = data.percentChange != null ? Number(data.percentChange) : 0;
+        if (isNaN(price) || price <= 0) {
+            this._updateQuoteDebug({ domUpdateSuccess: false, lastTouch: 'loadTickerCardQuote (invalid price)' });
+            currentPriceEl.innerHTML = '<span class="text-warning">No valid price in response</span>';
+            if (priceChangeEl) priceChangeEl.textContent = '—';
+            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+            return;
+        }
+        currentPriceEl.innerHTML = '$' + price.toFixed(2);
+        if (priceChangeEl) {
+            const sign = change >= 0 ? '+' : '';
+            const pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+            priceChangeEl.innerHTML = `<span class="${change >= 0 ? 'text-success' : 'text-danger'}">${sign}${change.toFixed(2)} (${pctStr})</span>`;
+        }
+        if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        this._updateQuoteDebug({ domUpdateSuccess: true, lastTouch: 'loadTickerCardQuote (success)' });
     }
 
     async refreshData() {
-        console.log('REFRESH DATA RUNNING', this.currentTicker || 'SPY');
+        this._updateQuoteDebug({ refreshDataCalled: true });
         const refreshBtn = document.getElementById('refresh-signal');
         const refreshText = document.getElementById('refresh-btn-text');
         const lastRefreshEl = document.getElementById('last-refresh-time');
@@ -2710,13 +2742,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
     
     showTickerLoading(show) {
-        const currentPriceEl = document.getElementById('current-price');
-        const priceChangeEl = document.getElementById('price-change');
-        const sym = (this.currentTicker || '').toUpperCase();
-        if (show && sym) {
-            if (currentPriceEl) currentPriceEl.innerHTML = `<span class="text-muted">Loading ${sym}…</span>`;
-            if (priceChangeEl) priceChangeEl.textContent = '—';
-        }
+        // BYPASS: only loadTickerCardQuote may touch price card
     }
     
     updateCoachPlaceholder() {
@@ -2725,26 +2751,14 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         if (input) input.placeholder = `e.g. Is this a good buy for ${sym} calls?`;
     }
     
-    /**
-     * Set ticker card to show a terminal error state (no infinite loading).
-     */
     setPriceCardError(title, detail) {
-        const currentPriceEl = document.getElementById('current-price');
-        const priceChangeEl = document.getElementById('price-change');
-        const lastUpdatedEl = document.getElementById('last-updated');
-        if (currentPriceEl) {
-            currentPriceEl.innerHTML = '<span class="text-warning">' + (title || 'No data') + (detail ? ': ' + this.escapeHtml(detail) : '') + '</span>';
-        }
-        if (priceChangeEl) priceChangeEl.textContent = '—';
-        if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+        // BYPASS: only loadTickerCardQuote may touch price card
     }
 
     clearLoadingState() {
         const badge = document.getElementById('market-status');
         const textEl = document.getElementById('session-text');
         const premarketTrend = document.getElementById('premarket-trend');
-        const currentPriceEl = document.getElementById('current-price');
-        const lastUpdatedEl = document.getElementById('last-updated');
         if (badge && (badge.textContent === 'Loading...' || badge.textContent === 'Refreshing...')) {
             badge.textContent = '—';
             badge.className = 'badge bg-secondary';
@@ -2762,14 +2776,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             premarketTrend.textContent = '—';
             premarketTrend.className = 'h5 text-muted';
         }
-        if (currentPriceEl) {
-            const t = currentPriceEl.textContent.trim();
-            const isPlaceholder = !t || t === '$--' || t.includes('--') || t.includes('Refresh for live') || t.includes('Loading');
-            if (isPlaceholder) currentPriceEl.innerHTML = '<span class="text-muted small">Click Refresh for live price</span>';
-        }
-        if (lastUpdatedEl && (lastUpdatedEl.textContent === 'Updated: --' || lastUpdatedEl.textContent === 'Updated: —')) {
-            lastUpdatedEl.textContent = 'Updated: —';
-        }
+        // BYPASS: do not touch #current-price or #last-updated; only loadTickerCardQuote may
     }
     
     showRefreshSuccess() {
@@ -3100,12 +3107,17 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             try {
                 data = await response.json();
             } catch (_) {
+                this.setSignalPanelWaitState('Invalid response');
                 return;
             }
-            if (!response.ok) return;
+            if (!response.ok) {
+                this.setSignalPanelWaitState('API ' + response.status);
+                return;
+            }
             if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
             if (data.error || !data.current_price) {
                 console.warn('Trade recommendation:', data.error || 'No price data');
+                this.setSignalPanelWaitState(data.error || 'No price data');
                 return;
             }
             this.updateTrafficLight(data.main_signal);
@@ -3139,7 +3151,21 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             
         } catch (error) {
             console.warn('Trade recommendation load failed:', error);
+            this.setSignalPanelWaitState(error && error.message ? error.message : 'Load failed');
         }
+    }
+    
+    /**
+     * Set signal panel to WAIT with a clear message so we never leave "Analyzing market conditions..." stuck.
+     */
+    setSignalPanelWaitState(reason) {
+        this.updateTrafficLight('WAIT');
+        const signalText = document.getElementById('main-signal-text');
+        const summary = document.getElementById('signal-summary');
+        const panel = document.getElementById('main-signal-panel');
+        if (signalText) signalText.textContent = 'WAIT';
+        if (summary) summary.textContent = reason ? `No signal data — ${reason}. Click Refresh.` : 'Click Refresh for live analysis.';
+        if (panel) panel.className = 'card mb-3 signal-wait';
     }
     
     getSignalBadge(data) {
@@ -3614,27 +3640,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     
     updatePriceDisplay(data) {
         this.lastPrice = data.current_price;
-        const currentPrice = document.getElementById('current-price');
-        if (currentPrice) {
-            let sessionLabel = '';
-            if (data.session === 'afterhours') {
-                sessionLabel = '<span class="badge bg-secondary ms-2" style="font-size: 0.5em;" title="After-hours data may be delayed 10-20 min">AH DELAYED</span>';
-            } else if (data.session === 'premarket') {
-                sessionLabel = '<span class="badge bg-secondary ms-2" style="font-size: 0.5em;" title="Pre-market data may be delayed 10-20 min">PM DELAYED</span>';
-            }
-            currentPrice.innerHTML = '$' + data.current_price.toFixed(2) + sessionLabel;
-        }
-        
-        const priceChange = document.getElementById('price-change');
-        if (priceChange) {
-            const changeClass = data.change >= 0 ? 'text-success' : 'text-danger';
-            const sign = data.change >= 0 ? '+' : '';
-            let changeText = `<span class="${changeClass}">${sign}${data.change.toFixed(2)} (${sign}${data.change_percent.toFixed(2)}%)</span>`;
-            if (data.session === 'afterhours' || data.session === 'premarket') {
-                changeText += `<small class="text-muted ms-1">vs prev close</small>`;
-            }
-            priceChange.innerHTML = changeText;
-        }
+        // BYPASS: only loadTickerCardQuote may touch #current-price, #price-change
     }
     
     updateKeyLevels(sr, currentPrice) {
