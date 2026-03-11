@@ -261,6 +261,7 @@ class TradingSignalsApp {
     }
     
     async init() {
+        console.log("APP INIT STARTED");
         // --- MINIMAL BOOT: when __MINIMAL_BOOT, only set ticker, bind Refresh, call refreshData/loadTickerCardQuote ---
         const SYMBOL_SELECTOR = '#ticker-select';
         if (window.__MINIMAL_BOOT) {
@@ -4740,7 +4741,8 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
 }
 
-function bootApp() {
+function initApp() {
+    if (window.app) return;
     setBootStage("boot-bootapp", "yes");
     setBootStage("boot-dom", document.readyState === "complete" ? "already ready" : "DOMContentLoaded fired");
     var errWrap = document.getElementById("boot-error-wrap");
@@ -4762,9 +4764,6 @@ function bootApp() {
     }
 }
 
-// ROOT CAUSE (if boot never ran): DOMContentLoaded already fired before this script ran (script loaded/cached after DOM ready). Fix: run bootApp() immediately when readyState !== "loading".
-if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", bootApp);
-} else {
-    bootApp();
-}
+document.addEventListener("DOMContentLoaded", initApp);
+window.addEventListener("load", function() { if (!window.app) initApp(); });
+if (document.readyState !== "loading") initApp();
