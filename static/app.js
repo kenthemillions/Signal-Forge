@@ -2600,6 +2600,52 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         }
     }
     
+    /**
+     * Fetch /api/quote and update ticker card immediately. Terminal state: price/change or error.
+     */
+    async loadTickerCardQuote() {
+        const sym = (this.currentTicker || 'SPY').trim().toUpperCase();
+        const currentPriceEl = document.getElementById('current-price');
+        const priceChangeEl = document.getElementById('price-change');
+        const lastUpdatedEl = document.getElementById('last-updated');
+        if (!currentPriceEl) return;
+        try {
+            const ac = new AbortController();
+            const t = setTimeout(() => ac.abort(), 10000);
+            const r = await fetch(`/api/quote?symbol=${encodeURIComponent(sym)}`, { signal: ac.signal });
+            clearTimeout(t);
+            const data = await r.json().catch(() => null);
+            if (data === null) {
+                this.setPriceCardError('Invalid quote response', 'Not JSON');
+                return;
+            }
+            if (data.error) {
+                this.setPriceCardError('No data returned', data.error);
+                if (priceChangeEl) priceChangeEl.textContent = '—';
+                if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+                return;
+            }
+            const price = data.price != null ? Number(data.price) : NaN;
+            const change = data.change != null ? Number(data.change) : 0;
+            const pct = data.percentChange != null ? Number(data.percentChange) : 0;
+            if (isNaN(price) || price <= 0) {
+                this.setPriceCardError('No data returned', 'Missing or invalid price');
+                return;
+            }
+            currentPriceEl.innerHTML = '$' + price.toFixed(2);
+            if (priceChangeEl) {
+                const sign = change >= 0 ? '+' : '';
+                const pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+                priceChangeEl.innerHTML = `<span class="${change >= 0 ? 'text-success' : 'text-danger'}">${sign}${change.toFixed(2)} (${pctStr})</span>`;
+            }
+            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        } catch (e) {
+            this.setPriceCardError('Backend unavailable', e && e.message ? e.message : 'Request failed');
+            if (priceChangeEl) priceChangeEl.textContent = '—';
+            if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+        }
+    }
+
     async refreshData() {
         const refreshBtn = document.getElementById('refresh-signal');
         const refreshText = document.getElementById('refresh-btn-text');
@@ -2609,6 +2655,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         if (refreshText) refreshText.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Refreshing...';
         
         this.loadLastHourScan();
+        await this.loadTickerCardQuote();
         
         const critical = [
             () => this.updateMarketStatus(),
@@ -3035,7 +3082,9 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const currentPriceEl = document.getElementById('current-price');
         const priceChangeEl = document.getElementById('price-change');
         const lastUpdatedEl = document.getElementById('last-updated');
+        const cardHasPrice = () => currentPriceEl && /^\$[\d,]+\.?\d*$/.test(currentPriceEl.textContent.trim());
         const setPlaceholder = () => {
+            if (cardHasPrice()) return;
             if (currentPriceEl) currentPriceEl.innerHTML = '<span class="text-muted">Click Refresh for live price</span>';
             if (priceChangeEl) priceChangeEl.textContent = '—';
             if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
@@ -3050,21 +3099,19 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             try {
                 data = await response.json();
             } catch (_) {
-                this.setPriceCardError('API error', 'Invalid JSON from trade-recommendation');
+                if (!cardHasPrice()) this.setPriceCardError('API error', 'Invalid JSON from trade-recommendation');
                 setPlaceholder();
                 return;
             }
             if (!response.ok) {
-                this.setPriceCardError('API error', 'trade-recommendation ' + response.status);
+                if (!cardHasPrice()) this.setPriceCardError('API error', 'trade-recommendation ' + response.status);
                 setPlaceholder();
                 return;
             }
-            
             if ((this.currentTicker || '').toUpperCase() !== requestedSymbol) return;
-            
             if (data.error || !data.current_price) {
                 console.warn('Trade recommendation:', data.error || 'No price data');
-                this.setPriceCardError('No data returned', data.error || 'No price data');
+                if (!cardHasPrice()) this.setPriceCardError('No data returned', data.error || 'No price data');
                 setPlaceholder();
                 return;
             }
@@ -3108,7 +3155,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             
         } catch (error) {
             console.warn('Trade recommendation load failed:', error);
-            this.setPriceCardError('Backend unavailable', (error && error.message) ? error.message : 'trade-recommendation failed');
+            if (!cardHasPrice()) this.setPriceCardError('Backend unavailable', (error && error.message) ? error.message : 'trade-recommendation failed');
             setPlaceholder();
         }
     }

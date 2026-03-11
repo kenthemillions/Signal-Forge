@@ -584,17 +584,29 @@ def coach_status():
 @app.route('/api/test-quote')
 def test_quote():
     """Minimal quote for stack verification. Always 200 + JSON."""
-    symbol = request.args.get('symbol') or 'SPY'
-    out = _normalized_quote(symbol)
-    return jsonify(out), 200
+    symbol = (request.args.get('symbol') or 'SPY').strip().upper()
+    logger.info('route=test-quote symbol=%s upstream=_normalized_quote', symbol)
+    try:
+        out = _normalized_quote(symbol)
+        logger.info('route=test-quote symbol=%s result=%s body=%s', symbol, 'error' if out.get('error') else 'ok', str(out)[:120])
+        return jsonify(out), 200
+    except Exception as e:
+        logger.exception('route=test-quote symbol=%s exception=%s', symbol, e)
+        return jsonify({'error': str(e), 'symbol': symbol}), 200
 
 
 @app.route('/api/quote')
 def api_quote():
-    """Quote for ticker card. Same normalized format as test-quote. Always 200 + JSON."""
-    symbol = request.args.get('symbol') or 'SPY'
-    out = _normalized_quote(symbol)
-    return jsonify(out), 200
+    """Quote for ticker card. Same normalized format. Always 200 + JSON."""
+    symbol = (request.args.get('symbol') or 'SPY').strip().upper()
+    logger.info('route=quote symbol=%s upstream=_normalized_quote', symbol)
+    try:
+        out = _normalized_quote(symbol)
+        logger.info('route=quote symbol=%s result=%s body=%s', symbol, 'error' if out.get('error') else 'ok', str(out)[:120])
+        return jsonify(out), 200
+    except Exception as e:
+        logger.exception('route=quote symbol=%s exception=%s', symbol, e)
+        return jsonify({'error': str(e), 'symbol': symbol}), 200
 
 
 @app.route('/api/tickers')
