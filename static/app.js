@@ -1,4 +1,45 @@
+// --- BOOT PROBE: proves this script executed at top level ---
+window.__bootProbe = "top-level-ran";
+console.log("BOOT PROBE: top-level JS ran");
+(function injectBootProbe() {
+    try {
+        if (!document.body) return;
+        var stages = document.createElement("div");
+        stages.id = "boot-stages";
+        stages.setAttribute("style", "position:fixed;top:24px;left:0;z-index:99998;background:#111;color:lime;padding:6px;font-size:11px;font-family:monospace;max-height:50vh;overflow:auto;");
+        stages.innerHTML = "<div>top-level JS ran: <span id=\"boot-top-level\">--</span></div>" +
+            "<div>bootApp entered: <span id=\"boot-bootapp\">--</span></div>" +
+            "<div>DOM: <span id=\"boot-dom\">--</span></div>" +
+            "<div>app instance created: <span id=\"boot-instance\">--</span></div>" +
+            "<div>currentTicker set: <span id=\"boot-ticker\">--</span></div>" +
+            "<div>refresh handler bound: <span id=\"boot-refresh-bound\">--</span></div>" +
+            "<div>refreshData entered: <span id=\"boot-refreshdata\">--</span></div>" +
+            "<div>quote request started: <span id=\"boot-quote-started\">--</span></div>" +
+            "<div id=\"boot-error-wrap\" style=\"color:red;display:none;\">BOOT ERROR: <span id=\"boot-error-msg\"></span></div>";
+        document.body.insertAdjacentElement("afterbegin", stages);
+        var el = document.createElement("div");
+        el.id = "boot-probe";
+        el.setAttribute("style", "position:fixed;top:0;left:0;z-index:99999;background:red;color:white;padding:4px;font-size:12px;");
+        el.textContent = "BOOT PROBE RAN";
+        document.body.insertAdjacentElement("afterbegin", el);
+        var topLevel = document.getElementById("boot-top-level");
+        if (topLevel) topLevel.textContent = "yes";
+    } catch (e) {
+        console.error("BOOT PROBE inject failed:", e);
+    }
+})();
+
 console.log('APP VERSION 2026-03-11-audit-fix');
+
+// Minimal boot: only run core bootstrap; disable charts, seasonality, coach, etc. until boot is proven.
+window.__MINIMAL_BOOT = true;
+
+function setBootStage(id, value) {
+    try {
+        var el = document.getElementById(id);
+        if (el) el.textContent = String(value);
+    } catch (e) {}
+}
 
 class TradingSignalsApp {
     constructor() {
@@ -253,8 +294,40 @@ class TradingSignalsApp {
     }
     
     async init() {
-        // --- MINIMAL BOOT: read symbol from DOM, set currentTicker, update debug, run refreshData ---
+        // --- MINIMAL BOOT: when __MINIMAL_BOOT, only set ticker, bind Refresh, call refreshData/loadTickerCardQuote ---
         const SYMBOL_SELECTOR = '#ticker-select';
+        if (window.__MINIMAL_BOOT) {
+            try {
+                setBootStage("boot-ticker", "pending");
+                this._updateQuoteDebug({ domReady: true, initStarted: true });
+                const symbolEl = document.getElementById('ticker-select');
+                this._updateQuoteDebug({ symbolSelector: SYMBOL_SELECTOR, symbolElFound: !!symbolEl });
+                var rawSymbol = '';
+                if (symbolEl && typeof symbolEl.value === 'string') rawSymbol = symbolEl.value.trim();
+                if (!rawSymbol) rawSymbol = 'SPY';
+                this.currentTicker = (rawSymbol || 'SPY').toUpperCase();
+                setBootStage("boot-ticker", this.currentTicker);
+                this._updateQuoteDebug({ rawSymbol: rawSymbol || '(empty)', currentTickerAssigned: this.currentTicker });
+                var tickerCardRefresh = document.getElementById('ticker-card-refresh');
+                var refreshBtn = document.getElementById('refresh-signal');
+                if (tickerCardRefresh) tickerCardRefresh.addEventListener('click', () => this.refreshData());
+                if (refreshBtn) refreshBtn.addEventListener('click', () => this.refreshData());
+                setBootStage("boot-refresh-bound", (tickerCardRefresh || refreshBtn) ? "yes" : "no");
+                this.refreshData().catch(function(e) { console.warn('Boot refreshData failed:', e); });
+            } catch (e) {
+                console.error('Init minimal boot error:', e);
+                setBootStage("boot-ticker", "SPY");
+                this.currentTicker = 'SPY';
+                this._updateQuoteDebug({ currentTickerAssigned: 'SPY', rawSymbol: '(fallback)', symbolElFound: false });
+                var r = document.getElementById('ticker-card-refresh');
+                var s = document.getElementById('refresh-signal');
+                if (r) r.addEventListener('click', () => this.refreshData());
+                if (s) s.addEventListener('click', () => this.refreshData());
+                setBootStage("boot-refresh-bound", "yes");
+                this.refreshData().catch(function() {});
+            }
+            return;
+        }
         try {
             this._updateQuoteDebug({ domReady: true, initStarted: true });
             const symbolEl = document.getElementById('ticker-select');
@@ -2663,6 +2736,7 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
         const priceChangeEl = document.getElementById('price-change');
         const lastUpdatedEl = document.getElementById('last-updated');
         this._updateQuoteDebug({ loadTickerCardQuoteCalled: true, lastTouch: 'loadTickerCardQuote (entry)' });
+        setBootStage("boot-quote-started", "yes");
         if (!currentPriceEl) {
             this._updateQuoteDebug({ lastTouch: 'loadTickerCardQuote (no #current-price)' });
             return;
@@ -2724,12 +2798,20 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
 
     async refreshData() {
         this._updateQuoteDebug({ refreshDataCalled: true });
+        setBootStage("boot-refreshdata", "yes");
         const refreshBtn = document.getElementById('refresh-signal');
         const refreshText = document.getElementById('refresh-btn-text');
         const lastRefreshEl = document.getElementById('last-refresh-time');
         
         if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.classList.add('refreshing'); }
         if (refreshText) refreshText.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Refreshing...';
+        
+        if (window.__MINIMAL_BOOT) {
+            await this.loadTickerCardQuote();
+            if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.classList.remove('refreshing'); }
+            if (refreshText) refreshText.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh';
+            return;
+        }
         
         this.loadLastHourScan();
         await this.loadTickerCardQuote();
@@ -4669,8 +4751,31 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    window.app = new TradingSignalsApp();
-    window.tradingApp = window.app;
-    window.app.initCheapOptionRadar();
-});
+function bootApp() {
+    setBootStage("boot-bootapp", "yes");
+    setBootStage("boot-dom", document.readyState === "complete" ? "already ready" : "DOMContentLoaded fired");
+    var errWrap = document.getElementById("boot-error-wrap");
+    var errMsg = document.getElementById("boot-error-msg");
+    try {
+        window.app = new TradingSignalsApp();
+        window.tradingApp = window.app;
+        setBootStage("boot-instance", "yes");
+        if (typeof window.app.initCheapOptionRadar === "function" && !window.__MINIMAL_BOOT) {
+            window.app.initCheapOptionRadar();
+        }
+    } catch (e) {
+        var msg = (e && e.message) ? e.message : String(e);
+        setBootStage("boot-instance", "no");
+        if (errWrap) { errWrap.style.display = "block"; }
+        if (errMsg) { errMsg.textContent = msg; }
+        console.error("BOOT ERROR:", e);
+        return;
+    }
+}
+
+// ROOT CAUSE (if boot never ran): DOMContentLoaded already fired before this script ran (script loaded/cached after DOM ready). Fix: run bootApp() immediately when readyState !== "loading".
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootApp);
+} else {
+    bootApp();
+}
