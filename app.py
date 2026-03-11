@@ -694,7 +694,9 @@ def get_indicators(symbol):
         if not data or data.get('error'):
             logger.warning('indicators symbol=%s no data or error=%s', symbol, data.get('error') if data else 'None')
             return jsonify({'error': data.get('error', 'Failed to fetch data') if data else 'No data'}), 200
-        indicators = indicator_engine.calculate_all(data)
+        settings = UserSettings.query.first()
+        settings_dict = settings.to_dict() if settings else None
+        indicators = indicator_engine.calculate_all(data, settings_dict)
         import numpy as np
         opens = np.array(data.get('opens', []))
         highs = np.array(data.get('highs', []))
@@ -1590,53 +1592,77 @@ def scan_top_10():
 def comprehensive_analysis(symbol):
     """
     Comprehensive multi-timeframe analysis with institutional flow detection
-    Analyzes 1m, 5m, 15m with 1h/4h confirmation
+    Analyzes 1m, 5m, 15m with 1h/4h confirmation. Always returns 200 with error key on failure.
     """
     symbol = symbol.upper()
-    
-    mtf_data = data_fetcher.get_multi_timeframe_data(symbol)
-    
-    if not mtf_data.get('timeframes'):
-        return jsonify({'error': f'Could not fetch multi-timeframe data for {symbol}'})
-    
-    institutional = data_fetcher.detect_institutional_activity(symbol)
-    
-    analysis = strategy_orchestrator.analyze_multi_timeframe(
-        symbol, mtf_data, indicator_engine, institutional
-    )
-    
-    tf_5m = mtf_data.get('timeframes', {}).get('5m', {})
-    current_price = tf_5m.get('current_price', 0)
-    change = tf_5m.get('change', 0)
-    change_percent = tf_5m.get('change_percent', 0)
-    
-    return jsonify({
+    safe_default = {
         'symbol': symbol,
-        'price': current_price,
-        'change': change,
-        'change_percent': change_percent,
-        'direction': analysis.get('direction', 'NEUTRAL'),
-        'overall_signal': analysis.get('overall_signal', 'NEUTRAL'),
-        'entry_action': analysis.get('entry_action', 'WAIT'),
-        'entry_alert': analysis.get('entry_alert', False),
-        'strength': analysis.get('strength', 50),
-        'confluence_score': analysis.get('confluence_score', 0),
-        'timeframe_trends': analysis.get('timeframe_trends', {}),
-        'timeframe_analysis': analysis.get('timeframe_analysis', {}),
-        'short_term': {
-            'bullish': analysis.get('short_term_bullish', 0),
-            'bearish': analysis.get('short_term_bearish', 0)
-        },
-        'higher_timeframe': {
-            'bullish': analysis.get('higher_tf_bullish', 0),
-            'bearish': analysis.get('higher_tf_bearish', 0)
-        },
-        'institutional': institutional,
-        'confluence_signals': analysis.get('confluence_signals', []),
-        'vwap_alignment': analysis.get('vwap_alignment', 0),
+        'price': 0,
+        'change': 0,
+        'change_percent': 0,
+        'direction': 'NEUTRAL',
+        'overall_signal': 'NEUTRAL',
+        'entry_action': 'WAIT',
+        'entry_alert': False,
+        'strength': 50,
+        'confluence_score': 0,
+        'timeframe_trends': {},
+        'timeframe_analysis': {},
+        'short_term': {'bullish': 0, 'bearish': 0},
+        'higher_timeframe': {'bullish': 0, 'bearish': 0},
+        'institutional': {},
+        'confluence_signals': [],
+        'vwap_alignment': 0,
         'market_status': strategy_orchestrator.get_market_status(),
-        'timestamp': analysis.get('timestamp')
-    })
+        'timestamp': None
+    }
+    try:
+        mtf_data = data_fetcher.get_multi_timeframe_data(symbol)
+        if not mtf_data.get('timeframes'):
+            safe_default['error'] = f'Could not fetch multi-timeframe data for {symbol}'
+            return jsonify(safe_default), 200
+
+        institutional = data_fetcher.detect_institutional_activity(symbol)
+        analysis = strategy_orchestrator.analyze_multi_timeframe(
+            symbol, mtf_data, indicator_engine, institutional
+        )
+
+        tf_5m = mtf_data.get('timeframes', {}).get('5m', {})
+        current_price = tf_5m.get('current_price', 0)
+        change = tf_5m.get('change', 0)
+        change_percent = tf_5m.get('change_percent', 0)
+
+        return jsonify({
+            'symbol': symbol,
+            'price': current_price,
+            'change': change,
+            'change_percent': change_percent,
+            'direction': analysis.get('direction', 'NEUTRAL'),
+            'overall_signal': analysis.get('overall_signal', 'NEUTRAL'),
+            'entry_action': analysis.get('entry_action', 'WAIT'),
+            'entry_alert': analysis.get('entry_alert', False),
+            'strength': analysis.get('strength', 50),
+            'confluence_score': analysis.get('confluence_score', 0),
+            'timeframe_trends': analysis.get('timeframe_trends', {}),
+            'timeframe_analysis': analysis.get('timeframe_analysis', {}),
+            'short_term': {
+                'bullish': analysis.get('short_term_bullish', 0),
+                'bearish': analysis.get('short_term_bearish', 0)
+            },
+            'higher_timeframe': {
+                'bullish': analysis.get('higher_tf_bullish', 0),
+                'bearish': analysis.get('higher_tf_bearish', 0)
+            },
+            'institutional': institutional,
+            'confluence_signals': analysis.get('confluence_signals', []),
+            'vwap_alignment': analysis.get('vwap_alignment', 0),
+            'market_status': strategy_orchestrator.get_market_status(),
+            'timestamp': analysis.get('timestamp')
+        }), 200
+    except Exception as e:
+        logger.exception('comprehensive_analysis symbol=%s exception=%s', symbol, e)
+        safe_default['error'] = str(e)
+        return jsonify(safe_default), 200
 
 @app.route('/api/risk-calculator', methods=['POST'])
 def calculate_risk():

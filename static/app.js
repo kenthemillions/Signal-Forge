@@ -1,4 +1,4 @@
-console.log('APP VERSION 2026-03-11-quote-fix-2-boot');
+console.log('APP VERSION 2026-03-11-audit-fix');
 
 class TradingSignalsApp {
     constructor() {
@@ -4012,15 +4012,17 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
     
     updateInstitutionalDisplay(institutional) {
         if (!institutional) return;
-        
+        const activityRaw = institutional.activity || institutional.activity_level || 'NORMAL';
+        const isHigh = activityRaw === 'HIGH' || activityRaw === 'HIGH_ACTIVITY' ||
+            (typeof activityRaw === 'string' && (activityRaw.includes('INSTITUTIONAL_') || activityRaw.includes('BUYING') || activityRaw.includes('SELLING')));
+        const displayLevel = isHigh ? 'HIGH' : (activityRaw || 'NORMAL');
         const activity = document.getElementById('institutional-activity');
         if (activity) {
-            activity.textContent = institutional.activity_level || 'NORMAL';
-            activity.className = 'h5 mb-0 ' + (institutional.activity_level === 'HIGH' ? 'text-warning' : 'text-secondary');
+            activity.textContent = displayLevel;
+            activity.className = 'h5 mb-0 ' + (isHigh ? 'text-warning' : 'text-secondary');
         }
-        
-        document.getElementById('inst-buy-spikes')?.textContent && (document.getElementById('inst-buy-spikes').textContent = institutional.bullish_spikes || 0);
-        document.getElementById('inst-sell-spikes')?.textContent && (document.getElementById('inst-sell-spikes').textContent = institutional.bearish_spikes || 0);
+        document.getElementById('inst-buy-spikes')?.textContent && (document.getElementById('inst-buy-spikes').textContent = institutional.bullish_spikes ?? 0);
+        document.getElementById('inst-sell-spikes')?.textContent && (document.getElementById('inst-sell-spikes').textContent = institutional.bearish_spikes ?? 0);
     }
     
     addSignalToFeed(signal, prepend = true) {

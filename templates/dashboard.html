@@ -1579,11 +1579,11 @@
     </div>
 
     <footer class="text-center py-1 border-top border-secondary small text-muted">
-        <span id="app-version-footer">APP VERSION 2026-03-11-quote-fix-2-boot</span>
+        <span id="app-version-footer">APP VERSION 2026-03-11-audit-fix</span>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/app.js?v={{ static_version | default('1') }}-2026-03-11-quote-fix"></script>
+    <script src="/static/app.js?v={{ static_version | default('1') }}-2026-03-11-audit"></script>
     <script>
         let currentMode = 'basic';
         let institutionalTimeframe = '5m';
@@ -1709,20 +1709,23 @@
             const container = document.getElementById(containerId);
             if (!container) return;
             container.innerHTML = '';
-            
-            const maxPercent = Math.max(...distribution.map(d => d.percent), 1);
-            distribution.slice(0, 5).forEach(item => {
-                const barWidth = (item.percent / maxPercent) * 100;
+            const dist = Array.isArray(distribution) ? distribution : [];
+            if (dist.length === 0) return;
+            const maxPercent = Math.max(...dist.map(d => (d && typeof d.percent === 'number') ? d.percent : 0), 1);
+            dist.slice(0, 5).forEach(item => {
+                if (!item) return;
+                const pct = typeof item.percent === 'number' ? item.percent : 0;
+                const barWidth = maxPercent > 0 ? (pct / maxPercent) * 100 : 0;
                 const bar = document.createElement('div');
                 bar.className = 'd-flex align-items-center mb-1 small';
                 bar.innerHTML = `
-                    <span class="text-muted" style="width: 50px;">${item.time}</span>
+                    <span class="text-muted" style="width: 50px;">${(item.time != null) ? item.time : '--'}</span>
                     <div class="flex-grow-1 mx-2">
                         <div class="progress" style="height: 12px;">
                             <div class="progress-bar bg-${colorClass}" style="width: ${barWidth}%"></div>
                         </div>
                     </div>
-                    <span class="text-muted" style="width: 40px;">${item.percent}%</span>
+                    <span class="text-muted" style="width: 40px;">${pct}%</span>
                 `;
                 container.appendChild(bar);
             });
@@ -1865,13 +1868,30 @@
             refreshBtn.disabled = true;
             
             try {
-                const sessionRules = JSON.parse(localStorage.getItem('user_settings'))?.session || {};
+                const sessionRules = JSON.parse(localStorage.getItem('user_settings') || '{}')?.session || {};
                 const response = await fetch(`/api/institutional/${ticker}?timeframe=${institutionalTimeframe}&session_rules=${encodeURIComponent(JSON.stringify(sessionRules))}`);
-                const data = await response.json();
-                
-                updateInstitutionalUI(data);
+                let data;
+                try {
+                    const text = await response.text();
+                    data = text ? JSON.parse(text) : {};
+                } catch (_) {
+                    data = { error: response.ok ? 'Invalid response' : 'Analysis failed (' + response.status + ')' };
+                }
+                if (!response.ok) data = data && data.error ? data : { error: 'Analysis failed (' + response.status + ')' };
+                if (data.error) {
+                    const stateBadge = document.getElementById('inst-state-badge');
+                    if (stateBadge) { stateBadge.textContent = 'Error'; stateBadge.className = 'display-4 fw-bold mb-2 text-danger'; }
+                    const conf = document.getElementById('inst-confidence-text');
+                    if (conf) conf.textContent = data.error;
+                } else {
+                    updateInstitutionalUI(data);
+                }
             } catch (error) {
                 console.error('Institutional analysis error:', error);
+                const stateBadge = document.getElementById('inst-state-badge');
+                if (stateBadge) { stateBadge.textContent = 'Error'; stateBadge.className = 'display-4 fw-bold mb-2 text-danger'; }
+                const conf = document.getElementById('inst-confidence-text');
+                if (conf) conf.textContent = 'Network error. Try again.';
             } finally {
                 refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh Analysis';
                 refreshBtn.disabled = false;
