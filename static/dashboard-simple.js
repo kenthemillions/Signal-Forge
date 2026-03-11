@@ -131,37 +131,116 @@
                 if (!input) return;
                 var sym = input.value.trim().toUpperCase();
                 if (!sym) return;
-                var sel = document.getElementById("ticker-select");
-                if (sel) {
-                    var has = false;
-                    for (var j = 0; j < sel.options.length; j++) {
-                        if (sel.options[j].value === sym) { has = true; break; }
-                    }
-                    if (!has) {
-                        var opt = document.createElement("option");
-                        opt.value = sym;
-                        opt.textContent = sym;
-                        sel.appendChild(opt);
-                    }
-                    sel.value = sym;
-                }
-                currentTicker = sym;
                 input.value = "";
                 var modal = document.getElementById("addTickerModal");
                 if (modal && typeof bootstrap !== "undefined") {
                     var m = bootstrap.Modal.getInstance(modal);
                     if (m) m.hide();
                 }
-                loadQuote(sym);
+                onSymbolChanged(sym);
             });
         }
 
         select.addEventListener("change", function() {
-            currentTicker = (select.value || "SPY").toString().trim().toUpperCase();
-            loadQuote(currentTicker);
+            onSymbolChanged((select.value || "SPY").toString().trim().toUpperCase());
         });
 
-        loadQuote(currentTicker);
+        var refreshSignalBtn = document.getElementById("refresh-signal");
+        if (refreshSignalBtn) refreshSignalBtn.addEventListener("click", function() { onSymbolChanged(currentTicker); });
+
+        onSymbolChanged(currentTicker);
+    }
+
+    async function onSymbolChanged(symbol) {
+        var sym = (symbol || "SPY").toString().trim().toUpperCase();
+        currentTicker = sym;
+        var select = document.getElementById("ticker-select");
+        if (select) {
+            var found = false;
+            for (var i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === sym) { found = true; break; }
+            }
+            if (!found) {
+                var opt = document.createElement("option");
+                opt.value = sym;
+                opt.textContent = sym;
+                select.appendChild(opt);
+            }
+            select.value = sym;
+        }
+        await loadQuote(sym);
+        await loadAnalysis(sym);
+    }
+
+    async function loadAnalysis(symbol) {
+        var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
+        var url = "/api/trade-recommendation/" + encodeURIComponent(sym);
+        setDebug({
+            "module-analysis-symbol": sym,
+            "module-analysis-endpoint": url,
+            "module-analysis-status": "...",
+            "module-analysis-result": "..."
+        });
+        var signalText = document.getElementById("main-signal-text");
+        var signalSummary = document.getElementById("signal-summary");
+        var panel = document.getElementById("main-signal-panel");
+        var trafficLight = document.getElementById("traffic-light");
+        if (signalSummary) signalSummary.textContent = "Loading analysis...";
+        try {
+            var res = await fetch(url);
+            setDebug({ "module-analysis-status": String(res.status) });
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!data) {
+                setDebug({ "module-analysis-result": "Invalid JSON" });
+                if (signalText) signalText.textContent = "WAIT";
+                if (signalSummary) signalSummary.textContent = "Analysis request failed (invalid response).";
+                if (panel) { panel.classList.remove("signal-buy", "signal-sell"); panel.classList.add("signal-wait"); }
+                if (trafficLight) setTrafficLight(trafficLight, "yellow");
+                return;
+            }
+            if (data.error) {
+                setDebug({ "module-analysis-result": "error: " + data.error });
+                if (signalText) signalText.textContent = "WAIT";
+                if (signalSummary) signalSummary.textContent = "Analysis failed: " + data.error;
+                if (panel) { panel.classList.remove("signal-buy", "signal-sell"); panel.classList.add("signal-wait"); }
+                if (trafficLight) setTrafficLight(trafficLight, "yellow");
+                return;
+            }
+            var mainSignal = (data.main_signal || "WAIT").toString();
+            var summary = data.summary || "No summary.";
+            setDebug({ "module-analysis-result": "ok " + mainSignal });
+            if (signalText) signalText.textContent = mainSignal;
+            if (signalSummary) signalSummary.textContent = summary;
+            if (panel) {
+                panel.classList.remove("signal-buy", "signal-sell", "signal-wait");
+                if (mainSignal.indexOf("BUY") !== -1) panel.classList.add("signal-buy");
+                else if (mainSignal.indexOf("SELL") !== -1) panel.classList.add("signal-sell");
+                else panel.classList.add("signal-wait");
+            }
+            if (trafficLight) {
+                if (mainSignal.indexOf("BUY") !== -1) setTrafficLight(trafficLight, "green");
+                else if (mainSignal.indexOf("SELL") !== -1) setTrafficLight(trafficLight, "red");
+                else setTrafficLight(trafficLight, "yellow");
+            }
+        } catch (e) {
+            var msg = (e && e.message) ? e.message : String(e);
+            setDebug({ "module-analysis-result": "error: " + msg });
+            if (signalText) signalText.textContent = "WAIT";
+            if (signalSummary) signalSummary.textContent = "Analysis failed: " + msg;
+            if (panel) { panel.classList.remove("signal-buy", "signal-sell"); panel.classList.add("signal-wait"); }
+            if (trafficLight) setTrafficLight(trafficLight, "yellow");
+        }
+    }
+
+    function setTrafficLight(container, activeColor) {
+        if (!container) return;
+        var lights = container.querySelectorAll(".light");
+        for (var i = 0; i < lights.length; i++) {
+            var l = lights[i];
+            if (l.classList.contains(activeColor)) l.classList.add("active");
+            else l.classList.remove("active");
+        }
     }
 
     if (document.readyState === "loading") {
