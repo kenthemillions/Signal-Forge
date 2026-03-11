@@ -1,4 +1,4 @@
-console.log('APP VERSION 2026-03-11-quote-fix-1');
+console.log('APP VERSION 2026-03-11-quote-fix-2-boot');
 
 class TradingSignalsApp {
     constructor() {
@@ -6,6 +6,12 @@ class TradingSignalsApp {
         this.chart = null;
         this.currentTicker = 'SPY';
         this._quoteDebug = {
+            domReady: false,
+            initStarted: false,
+            symbolElFound: false,
+            symbolSelector: '--',
+            rawSymbol: '--',
+            currentTickerAssigned: '--',
             refreshDataCalled: false,
             loadTickerCardQuoteCalled: false,
             quoteRequestStarted: false,
@@ -56,18 +62,27 @@ class TradingSignalsApp {
     
     _updateQuoteDebug(updates) {
         if (!this._quoteDebug) return;
-        Object.assign(this._quoteDebug, updates);
-        const d = this._quoteDebug;
-        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = String(val ?? '--'); };
-        set('debug-current-ticker', this.currentTicker || '--');
-        set('debug-refresh-called', d.refreshDataCalled ? 'yes' : 'no');
-        set('debug-quote-called', d.loadTickerCardQuoteCalled ? 'yes' : 'no');
-        set('debug-request-started', d.quoteRequestStarted ? 'yes' : 'no');
-        set('debug-quote-url', d.quoteUrl);
-        set('debug-quote-status', d.quoteStatus);
-        set('debug-quote-body', (d.quoteBody && d.quoteBody.length > 80) ? d.quoteBody.substring(0, 80) + '...' : d.quoteBody);
-        set('debug-dom-ok', d.domUpdateSuccess ? 'yes' : 'no');
-        set('debug-last-touch', d.lastTouch);
+        try {
+            Object.assign(this._quoteDebug, updates);
+            const d = this._quoteDebug;
+            const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = String(val ?? '--'); };
+            set('debug-dom-ready', d.domReady ? 'yes' : 'no');
+            set('debug-init-started', d.initStarted ? 'yes' : 'no');
+            set('debug-symbol-el-found', d.symbolElFound ? 'yes' : 'no');
+            set('debug-symbol-selector', d.symbolSelector);
+            set('debug-raw-symbol', d.rawSymbol);
+            set('debug-current-ticker', d.currentTickerAssigned !== '--' ? d.currentTickerAssigned : (this.currentTicker || '--'));
+            set('debug-refresh-called', d.refreshDataCalled ? 'yes' : 'no');
+            set('debug-quote-called', d.loadTickerCardQuoteCalled ? 'yes' : 'no');
+            set('debug-request-started', d.quoteRequestStarted ? 'yes' : 'no');
+            set('debug-quote-url', d.quoteUrl);
+            set('debug-quote-status', d.quoteStatus);
+            set('debug-quote-body', (d.quoteBody && d.quoteBody.length > 80) ? d.quoteBody.substring(0, 80) + '...' : d.quoteBody);
+            set('debug-dom-ok', d.domUpdateSuccess ? 'yes' : 'no');
+            set('debug-last-touch', d.lastTouch);
+        } catch (e) {
+            console.error('_updateQuoteDebug error:', e);
+        }
     }
     
     loadSignalHistory() {
@@ -238,10 +253,30 @@ class TradingSignalsApp {
     }
     
     async init() {
-        this._updateQuoteDebug({});
+        // --- MINIMAL BOOT: read symbol from DOM, set currentTicker, update debug, run refreshData ---
+        const SYMBOL_SELECTOR = '#ticker-select';
+        try {
+            this._updateQuoteDebug({ domReady: true, initStarted: true });
+            const symbolEl = document.getElementById('ticker-select');
+            this._updateQuoteDebug({ symbolSelector: SYMBOL_SELECTOR, symbolElFound: !!symbolEl });
+            let rawSymbol = '';
+            if (symbolEl && typeof symbolEl.value === 'string') rawSymbol = symbolEl.value.trim();
+            if (!rawSymbol) rawSymbol = 'SPY';
+            this.currentTicker = (rawSymbol || 'SPY').toUpperCase();
+            this._updateQuoteDebug({ rawSymbol: rawSymbol || '(empty)', currentTickerAssigned: this.currentTicker });
+            const tickerCardRefresh = document.getElementById('ticker-card-refresh');
+            if (tickerCardRefresh) tickerCardRefresh.addEventListener('click', () => this.refreshData());
+            const refreshBtn = document.getElementById('refresh-signal');
+            if (refreshBtn) refreshBtn.addEventListener('click', () => this.refreshData());
+            this.refreshData().catch(e => console.warn('Boot refreshData failed:', e));
+        } catch (e) {
+            console.error('Init boot error:', e);
+            this.currentTicker = 'SPY';
+            this._updateQuoteDebug({ currentTickerAssigned: 'SPY', rawSymbol: '(fallback)', symbolElFound: false });
+            this.refreshData().catch(() => {});
+        }
         const sessionText = document.getElementById('session-text');
         if (sessionText) sessionText.textContent = 'Loading…';
-        this.loadTickerCardQuote().catch(() => {});
         this.initAudioContext();
         this.initSocket();
         this.initChart();

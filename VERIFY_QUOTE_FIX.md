@@ -20,7 +20,11 @@
 5. **Network** – In DevTools Network, filter by "quote". Confirm request to /api/quote?symbol=SPY (and later /api/quote?symbol=SLV when you add SLV). Check status and response body.
 6. **Add SLV** – Add ticker SLV, select SLV. Debug box should show currentTicker: SLV, quote URL: /api/quote?symbol=SLV, and price card should show SLV price or error.
 
-## Root cause (one of these)
+## Root cause (fix 2 – boot/state)
+
+**Exact root cause:** currentTicker was never set from the visible DOM on boot; init did not read the symbol element first or run a minimal boot that invokes refreshData(), so the debug box showed -- and no quote ran. The visible symbol is in **`<select id="ticker-select">`** (`.value` = "SPY"). Fix: at the very start of init(), read `document.getElementById('ticker-select').value`, set `currentTicker`, update init-step debug, bind Refresh, call `refreshData()`.
+
+## Root cause (one of these) – if still broken
 
 - **Stale cached JS** – Footer does not show 2026-03-11-quote-fix-1.
 - **Wrong DOM selectors** – #current-price / #price-change / #last-updated missing; debug would show "loadTickerCardQuote (no #current-price)".
