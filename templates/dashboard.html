@@ -14,9 +14,6 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body class="bg-dark text-light">
-    <div id="template-probe" style="position:fixed;top:60px;left:0;right:0;z-index:999998;background:blue;color:white;padding:8px;text-align:center;">
-TEMPLATE BOOTFIX2 LOADED
-</div>
     <nav class="navbar navbar-dark bg-black border-bottom border-secondary">
         <div class="container-fluid">
             <span class="navbar-brand mb-0 h1">
@@ -877,6 +874,19 @@ TEMPLATE BOOTFIX2 LOADED
                             <div>quote response: <span id="debug-quote-body">--</span></div>
                             <div>DOM update success: <span id="debug-dom-ok">no</span></div>
                             <div>last to touch price card: <span id="debug-last-touch">--</span></div>
+                        </div>
+                        <div id="add-ticker-debug-box" class="small mb-2 p-2 rounded border border-info bg-dark" style="font-family: monospace; font-size: 0.7rem;">
+                            <div class="text-info fw-bold mb-1">Add Ticker debug</div>
+                            <div>add button clicked: <span id="add-debug-clicked">no</span></div>
+                            <div>raw input value: <span id="add-debug-raw">--</span></div>
+                            <div>symbol normalized to: <span id="add-debug-normalized">--</span></div>
+                            <div>symbol added to dropdown: <span id="add-debug-added-to-list">--</span></div>
+                            <div>dropdown selected value after add: <span id="add-debug-select-value">--</span></div>
+                            <div>currentTicker after add: <span id="add-debug-current-ticker">--</span></div>
+                            <div>quote URL requested after add: <span id="add-debug-quote-url">--</span></div>
+                            <div>quote status after add: <span id="add-debug-quote-status">--</span></div>
+                            <div>quote body after add: <span id="add-debug-quote-body">--</span></div>
+                            <div>DOM update success after add: <span id="add-debug-dom-ok">--</span></div>
                         </div>
                         <div class="d-flex flex-column gap-2">
                             <div class="d-flex align-items-center gap-1 flex-wrap">
