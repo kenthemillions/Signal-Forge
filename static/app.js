@@ -210,6 +210,9 @@ class TradingSignalsApp {
     }
     
     async init() {
+        const sessionText = document.getElementById('session-text');
+        if (sessionText) sessionText.textContent = 'Loading…';
+        await this.loadTickerCardQuote();
         this.initAudioContext();
         this.initSocket();
         this.initChart();
@@ -224,11 +227,7 @@ class TradingSignalsApp {
         this.playStartupSound();
         this.initFeedbackForm();
         this.debugMode = false;
-        
-        const sessionText = document.getElementById('session-text');
-        if (sessionText) sessionText.textContent = 'Loading…';
         setTimeout(() => this.clearLoadingState(), 1500);
-        
         try {
             await this.loadTickers();
         } catch (e) {
@@ -245,7 +244,6 @@ class TradingSignalsApp {
             }
             this.clearLoadingState();
         }
-        await this.loadTickerCardQuote();
         this.loadSettings();
         this.loadSignals();
         
@@ -2618,12 +2616,16 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             const data = await r.json().catch(() => null);
             if (data === null) {
                 this.setPriceCardError('Invalid quote response', 'Not JSON');
+                const st = document.getElementById('session-text');
+                if (st) st.textContent = 'Invalid response — try Refresh';
                 return;
             }
             if (data.error) {
                 this.setPriceCardError('No data returned', data.error);
                 if (priceChangeEl) priceChangeEl.textContent = '—';
                 if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+                const st = document.getElementById('session-text');
+                if (st) st.textContent = 'Quote error: ' + (data.error || 'No data');
                 return;
             }
             const price = data.price != null ? Number(data.price) : NaN;
@@ -2631,6 +2633,8 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             const pct = data.percentChange != null ? Number(data.percentChange) : 0;
             if (isNaN(price) || price <= 0) {
                 this.setPriceCardError('No data returned', 'Missing or invalid price');
+                const st = document.getElementById('session-text');
+                if (st) st.textContent = 'Quote error: invalid price';
                 return;
             }
             currentPriceEl.innerHTML = '$' + price.toFixed(2);
@@ -2646,6 +2650,8 @@ return `<button type="button" class="btn btn-sm ${btnClass} last-hour-play" data
             this.setPriceCardError('Backend unavailable', e && e.message ? e.message : 'Request failed');
             if (priceChangeEl) priceChangeEl.textContent = '—';
             if (lastUpdatedEl) lastUpdatedEl.textContent = 'Updated: —';
+            const st = document.getElementById('session-text');
+            if (st) st.textContent = 'Backend unavailable — try Refresh';
         }
     }
 
