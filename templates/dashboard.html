@@ -605,6 +605,22 @@
                                     <button id="chart-candle" class="btn btn-outline-info btn-sm chart-type-btn">Candle</button>
                                     <button id="chart-heiken" class="btn btn-outline-info btn-sm chart-type-btn">HA</button>
                                 </div>
+                                <div class="dropdown btn-group btn-group-sm">
+                                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="overlay-controls-btn" data-bs-toggle="dropdown" aria-expanded="false" title="Chart overlays">
+                                        <i class="bi bi-layers"></i> Overlays
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end p-2" id="overlay-controls-panel" aria-labelledby="overlay-controls-btn">
+                                        <li class="dropdown-header small">Toggle overlays</li>
+                                        <li><label class="dropdown-item d-flex align-items-center gap-2"><input type="checkbox" id="overlay-fib" class="form-check-input"> <span>Fibonacci</span></label></li>
+                                        <li><label class="dropdown-item d-flex align-items-center gap-2"><input type="checkbox" id="overlay-vwap" class="form-check-input"> <span>VWAP</span></label></li>
+                                        <li><label class="dropdown-item d-flex align-items-center gap-2"><input type="checkbox" id="overlay-ema" class="form-check-input"> <span>EMAs (9/21/48/200)</span></label></li>
+                                        <li><label class="dropdown-item d-flex align-items-center gap-2"><input type="checkbox" id="overlay-pd" class="form-check-input"> <span>Previous Day (PDH/PDL)</span></label></li>
+                                        <li><label class="dropdown-item d-flex align-items-center gap-2"><input type="checkbox" id="overlay-pm" class="form-check-input"> <span>Premarket (PMH/PML)</span></label></li>
+                                        <li><label class="dropdown-item d-flex align-items-center gap-2"><input type="checkbox" id="overlay-or" class="form-check-input"> <span>Opening Range (ORH/ORL)</span></label></li>
+                                        <li><label class="dropdown-item d-flex align-items-center gap-2"><input type="checkbox" id="overlay-atr" class="form-check-input"> <span>ATR Bands</span></label></li>
+                                        <li><label class="dropdown-item d-flex align-items-center gap-2"><input type="checkbox" id="overlay-signals" class="form-check-input"> <span>Signal tags</span></label></li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
                     </div>

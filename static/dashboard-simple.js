@@ -184,6 +184,15 @@
             });
         });
 
+        ["overlay-fib", "overlay-vwap", "overlay-ema", "overlay-pd", "overlay-pm", "overlay-or", "overlay-atr", "overlay-signals"].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            if (id === "overlay-fib" || id === "overlay-vwap") el.checked = true;
+            el.addEventListener("change", function() {
+                if (priceChart && lastOverlayData) applyChartOverlays(priceChart, lastOverlayData);
+            });
+        });
+
         var refreshNewsBtn = document.getElementById("refresh-news-btn");
         if (refreshNewsBtn) refreshNewsBtn.addEventListener("click", function() { loadNews(currentTicker); });
 
@@ -411,42 +420,159 @@
     };
     if (typeof Chart !== "undefined" && Chart.register) Chart.register(candlestickDrawPlugin);
 
-    function addFibAtrOverlay(chart, labels, highs, lows, closes) {
-        if (!chart || !closes || closes.length < 20) return;
-        var lookback = Math.min(50, Math.floor(closes.length * 0.6));
-        var slice = closes.length - lookback;
+    var lastOverlayData = null;
+    var lastMainSignal = "";
+
+    function overlayToggle(id) { var el = document.getElementById(id); return el ? el.checked : false; }
+    function computeEMA(closes, period) {
+        var out = [], k = 2 / (period + 1), i;
+        for (i = 0; i < closes.length; i++) {
+            if (i < period - 1) { out.push(null); continue; }
+            if (i === period - 1) {
+                var sum = 0; for (var j = 0; j < period; j++) sum += closes[j];
+                out.push(sum / period);
+                continue;
+            }
+            out.push((closes[i] - out[i - 1]) * k + out[i - 1]);
+        }
+        return out;
+    }
+    function computeVwapArray(highs, lows, closes, volumes) {
+        var out = [], cumTpv = 0, cumV = 0, i;
+        for (i = 0; i < closes.length; i++) {
+            var tp = ((highs[i] || 0) + (lows[i] || 0) + (closes[i] || 0)) / 3;
+            var v = (volumes && volumes[i] != null) ? Number(volumes[i]) : 0;
+            cumTpv += tp * v;
+            cumV += v;
+            out.push(cumV > 0 ? cumTpv / cumV : (closes[i] || 0));
+        }
+        return out;
+    }
+    function isInOpeningRangeET(ts) {
+        if (ts == null) return false;
+        var d = (typeof ts === "number" || typeof ts === "string") ? new Date(ts) : new Date();
+        var etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+        var parts = etStr.split(/[\s:]+/);
+        var h = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+        if (h < 9) return false;
+        if (h === 9 && m < 30) return false;
+        if (h === 9 && m >= 30 && m < 35) return true;
+        if (h === 9 && m >= 35) return false;
+        return false;
+    }
+    function getORFromBars(timestamps, highs, lows) {
+        var orh = -Infinity, orl = Infinity, i;
+        for (i = 0; i < (timestamps && timestamps.length) || 0; i++) {
+            if (!isInOpeningRangeET(timestamps[i])) continue;
+            if (highs[i] != null && highs[i] > orh) orh = highs[i];
+            if (lows[i] != null && lows[i] < orl) orl = lows[i];
+        }
+        return { orh: orh === -Infinity ? null : orh, orl: orl === Infinity ? null : orl };
+    }
+    function getFibLevels(highs, lows) {
+        var n = (highs && highs.length) || 0;
+        var lookback = Math.min(50, Math.floor(n * 0.6));
+        if (n < 20) return null;
+        var slice = n - lookback;
         var recentHigh = Math.max.apply(null, highs.slice(slice));
         var recentLow = Math.min.apply(null, lows.slice(slice));
         var range = recentHigh - recentLow;
-        if (range <= 0) return;
-        var fib382 = recentLow + range * 0.382;
-        var fib50 = recentLow + range * 0.5;
-        var fib618 = recentLow + range * 0.618;
+        if (range <= 0) return null;
+        return {
+            fib236: recentLow + range * 0.236,
+            fib382: recentLow + range * 0.382,
+            fib50: recentLow + range * 0.5,
+            fib618: recentLow + range * 0.618,
+            fib786: recentLow + range * 0.786,
+            srHigh: recentHigh,
+            srLow: recentLow
+        };
+    }
+    function getATRBands(highs, lows, closes, period) {
+        period = period || 14;
+        var len = (closes && closes.length) || 0;
+        if (len < period) return null;
+        var sum = 0;
+        for (var j = len - period; j < len - 1; j++) {
+            if (j >= 0) sum += Math.max((highs[j] - lows[j]), Math.abs(highs[j] - (closes[j - 1] || closes[j])), Math.abs(lows[j] - (closes[j - 1] || closes[j])));
+        }
+        var atr = sum / (period - 1) || 0;
+        var last = closes[len - 1];
+        return { upper: last + atr, lower: last - atr };
+    }
+    var signalTagPlugin = {
+        id: "signalTag",
+        afterDatasetsDraw: function(chart) {
+            var opts = chart.options.plugins && chart.options.plugins.signalTag;
+            if (!opts || !opts.signal || !opts.show) return;
+            var meta = chart.getDatasetMeta(0);
+            if (!meta || !meta.data || meta.data.length === 0) return;
+            var lastPoint = meta.data[meta.data.length - 1];
+            var ctx = chart.ctx;
+            ctx.save();
+            ctx.font = "bold 10px sans-serif";
+            var text = opts.signal === "BUY" ? "BUY" : (opts.signal === "SELL" ? "SELL" : "PREPARE");
+            var color = opts.signal === "BUY" ? "#22c55e" : (opts.signal === "SELL" ? "#ef4444" : "#eab308");
+            ctx.fillStyle = color;
+            ctx.fillText(text, lastPoint.x + 4, lastPoint.y - 4);
+            ctx.restore();
+        }
+    };
+    if (typeof Chart !== "undefined" && Chart.register) Chart.register(signalTagPlugin);
+
+    function applyChartOverlays(chart, data) {
+        if (!chart || !data || !data.labels || !data.closes || data.closes.length < 2) return;
+        lastOverlayData = data;
+        var labels = data.labels, highs = data.highs || [], lows = data.lows || [], closes = data.closes, opens = data.opens || [], volumes = data.volumes || [], timestamps = data.timestamps || [];
+        var chartLevels = data.chartLevels || {};
         var len = labels.length;
-        var constArr = function(v) { var a = []; for (var i = 0; i < len; i++) a.push(v); return a; };
-        var atrPeriod = 14;
-        var atr = 0;
-        if (highs.length >= atrPeriod && lows.length >= atrPeriod) {
-            var sum = 0;
-            for (var j = len - atrPeriod; j < len - 1; j++) {
-                if (j >= 0) sum += Math.max((highs[j] - lows[j]), Math.abs(highs[j] - (closes[j-1] || closes[j])), Math.abs(lows[j] - (closes[j-1] || closes[j])));
+        function constArr(v) { var a = []; for (var i = 0; i < len; i++) a.push(v); return a; }
+        var overlayDatasets = [];
+        if (overlayToggle("overlay-fib")) {
+            var fib = getFibLevels(highs, lows);
+            if (fib) {
+                overlayDatasets.push({ label: "Fib 0.236", data: constArr(fib.fib236), borderColor: "rgba(34, 197, 94, 0.75)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 });
+                overlayDatasets.push({ label: "Fib 0.382", data: constArr(fib.fib382), borderColor: "rgba(34, 197, 94, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 });
+                overlayDatasets.push({ label: "Fib 0.5", data: constArr(fib.fib50), borderColor: "rgba(234, 179, 8, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 });
+                overlayDatasets.push({ label: "Fib 0.618", data: constArr(fib.fib618), borderColor: "rgba(249, 115, 22, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 });
+                overlayDatasets.push({ label: "Fib 0.786", data: constArr(fib.fib786), borderColor: "rgba(239, 68, 68, 0.75)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 });
             }
-            atr = sum / (atrPeriod - 1) || range * 0.02;
-        } else atr = range * 0.02;
-        var currentPrice = closes[closes.length - 1];
-        var atrUpper = currentPrice + atr;
-        var atrLower = currentPrice - atr;
-        var overlayDatasets = [
-            { label: "Fib 0.382", data: constArr(fib382), borderColor: "rgba(34, 197, 94, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 },
-            { label: "Fib 0.5", data: constArr(fib50), borderColor: "rgba(234, 179, 8, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 },
-            { label: "Fib 0.618", data: constArr(fib618), borderColor: "rgba(249, 115, 22, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 },
-            { label: "S/R High", data: constArr(recentHigh), borderColor: "rgba(239, 68, 68, 0.7)", borderWidth: 1, fill: false, pointRadius: 0 },
-            { label: "S/R Low", data: constArr(recentLow), borderColor: "rgba(34, 197, 94, 0.7)", borderWidth: 1, fill: false, pointRadius: 0 },
-            { label: "ATR Upper", data: constArr(atrUpper), borderColor: "rgba(148, 163, 184, 0.6)", borderWidth: 1, borderDash: [2, 2], fill: false, pointRadius: 0 },
-            { label: "ATR Lower", data: constArr(atrLower), borderColor: "rgba(148, 163, 184, 0.6)", borderWidth: 1, borderDash: [2, 2], fill: false, pointRadius: 0 }
-        ];
+        }
+        if (overlayToggle("overlay-vwap") && volumes && volumes.length === len) {
+            var vwapArr = computeVwapArray(highs, lows, closes, volumes);
+            overlayDatasets.push({ label: "VWAP", data: vwapArr, borderColor: "rgba(168, 85, 247, 0.95)", borderWidth: 2, fill: false, pointRadius: 0, tension: 0.1 });
+        }
+        if (overlayToggle("overlay-ema")) {
+            var e9 = computeEMA(closes, 9), e21 = computeEMA(closes, 21), e48 = computeEMA(closes, 48), e200 = computeEMA(closes, 200);
+            overlayDatasets.push({ label: "EMA 9", data: e9, borderColor: "rgba(252, 211, 77, 0.9)", borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0.1 });
+            overlayDatasets.push({ label: "EMA 21", data: e21, borderColor: "rgba(251, 146, 60, 0.9)", borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0.1 });
+            overlayDatasets.push({ label: "EMA 48", data: e48, borderColor: "rgba(96, 165, 250, 0.9)", borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0.1 });
+            overlayDatasets.push({ label: "EMA 200", data: e200, borderColor: "rgba(192, 132, 252, 0.9)", borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0.1 });
+        }
+        if (overlayToggle("overlay-pd") && (chartLevels.pdh != null || chartLevels.pdl != null)) {
+            if (chartLevels.pdh != null) overlayDatasets.push({ label: "PDH", data: constArr(chartLevels.pdh), borderColor: "rgba(239, 68, 68, 0.8)", borderWidth: 1.5, borderDash: [6, 3], fill: false, pointRadius: 0 });
+            if (chartLevels.pdl != null) overlayDatasets.push({ label: "PDL", data: constArr(chartLevels.pdl), borderColor: "rgba(34, 197, 94, 0.8)", borderWidth: 1.5, borderDash: [6, 3], fill: false, pointRadius: 0 });
+        }
+        if (overlayToggle("overlay-pm") && (chartLevels.pmh != null || chartLevels.pml != null)) {
+            if (chartLevels.pmh != null) overlayDatasets.push({ label: "PMH", data: constArr(chartLevels.pmh), borderColor: "rgba(251, 146, 60, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 });
+            if (chartLevels.pml != null) overlayDatasets.push({ label: "PML", data: constArr(chartLevels.pml), borderColor: "rgba(96, 165, 250, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 });
+        }
+        if (overlayToggle("overlay-or")) {
+            var orLevels = getORFromBars(timestamps, highs, lows);
+            if (orLevels.orh != null) overlayDatasets.push({ label: "ORH", data: constArr(orLevels.orh), borderColor: "rgba(234, 179, 8, 0.85)", borderWidth: 1.5, borderDash: [4, 2], fill: false, pointRadius: 0 });
+            if (orLevels.orl != null) overlayDatasets.push({ label: "ORL", data: constArr(orLevels.orl), borderColor: "rgba(34, 197, 94, 0.85)", borderWidth: 1.5, borderDash: [4, 2], fill: false, pointRadius: 0 });
+        }
+        if (overlayToggle("overlay-atr")) {
+            var atr = getATRBands(highs, lows, closes, 14);
+            if (atr) {
+                overlayDatasets.push({ label: "ATR Upper", data: constArr(atr.upper), borderColor: "rgba(148, 163, 184, 0.65)", borderWidth: 1, borderDash: [2, 2], fill: false, pointRadius: 0 });
+                overlayDatasets.push({ label: "ATR Lower", data: constArr(atr.lower), borderColor: "rgba(148, 163, 184, 0.65)", borderWidth: 1, borderDash: [2, 2], fill: false, pointRadius: 0 });
+            }
+        }
         while (chart.data.datasets.length > 1) chart.data.datasets.pop();
         overlayDatasets.forEach(function(ds) { chart.data.datasets.push(ds); });
+        if (chart.options.plugins) chart.options.plugins.signalTag = { signal: data.mainSignal || lastMainSignal, show: overlayToggle("overlay-signals") };
+        else chart.options.plugins = { signalTag: { signal: data.mainSignal || lastMainSignal, show: overlayToggle("overlay-signals") } };
         chart.update("none");
     }
 
@@ -689,7 +815,11 @@
                 var rendered = createCandlestickChart(ohlcData, mode === "ha", true);
                 if (rendered && priceChart) {
                     var candleLabels = timestamps.map(function(t) { var d = (t && (typeof t === "number" || typeof t === "string")) ? new Date(t) : new Date(); return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }); });
-                    addFibAtrOverlay(priceChart, candleLabels, useHighs, useLows, useCloses);
+                    (async function() {
+                        var chartLevels = {};
+                        try { var r = await fetch("/api/chart-levels/" + encodeURIComponent(sym)); var j = await r.json(); if (j) chartLevels = j; } catch (e) {}
+                        applyChartOverlays(priceChart, { labels: candleLabels, highs: useHighs, lows: useLows, closes: useCloses, opens: useOpens, volumes: data.volumes || [], timestamps: timestamps, chartLevels: chartLevels, mainSignal: lastMainSignal });
+                    })();
                 }
                 if (!rendered && noDataEl) noDataEl.textContent = "Not enough OHLC data for candle mode.";
                 showChartNoData(!rendered);
@@ -708,7 +838,11 @@
                 priceChart.data.labels = labels;
                 priceChart.data.datasets[0].data = closes;
                 priceChart.update("none");
-                addFibAtrOverlay(priceChart, labels, highs, lows, closes);
+                (async function() {
+                    var chartLevels = {};
+                    try { var r = await fetch("/api/chart-levels/" + encodeURIComponent(sym)); var j = await r.json(); if (j) chartLevels = j; } catch (e) {}
+                    applyChartOverlays(priceChart, { labels: labels, highs: highs, lows: lows, closes: closes, opens: opens, volumes: data.volumes || [], timestamps: timestamps, chartLevels: chartLevels, mainSignal: lastMainSignal });
+                })();
                 showChartNoData(false);
                 setDebug({ "module-chart-result": "ok " + n + " bars" });
             }
@@ -1228,12 +1362,14 @@
                 return;
             }
             var mainSignal = (data.main_signal || "WAIT").toString();
+            lastMainSignal = mainSignal.indexOf("BUY") !== -1 ? "BUY" : (mainSignal.indexOf("SELL") !== -1 ? "SELL" : "PREPARE");
             var summary = data.summary || "No summary.";
             var indList = (data.evaluated_indicators || []).join(", ") || "--";
             var bull = data.bullish_count != null ? String(data.bullish_count) : "--";
             var bear = data.bearish_count != null ? String(data.bearish_count) : "--";
             var tot = data.total_count != null ? String(data.total_count) : "--";
             updateIndicatorsPanel(data.indicators || {});
+            if (priceChart && lastOverlayData) applyChartOverlays(priceChart, Object.assign({}, lastOverlayData, { mainSignal: lastMainSignal }));
             setDebug({
                 "module-analysis-result": "ok " + mainSignal,
                 "module-analysis-indicators": indList,

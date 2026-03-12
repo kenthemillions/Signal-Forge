@@ -694,6 +694,56 @@ def get_market_data(symbol):
         logger.exception('market_data symbol=%s exception=%s', symbol, e)
         return jsonify({'error': str(e), 'closes': [], 'timestamps': [], 'opens': [], 'highs': [], 'lows': [], 'volumes': []}), 200
 
+@app.route('/api/chart-levels/<symbol>')
+def get_chart_levels(symbol):
+    """Return PDH, PDL, PMH, PML for chart overlays. Used by Chart Intelligence Layer."""
+    symbol = (symbol or '').strip().upper()
+    try:
+        from zoneinfo import ZoneInfo
+        et_tz = ZoneInfo('America/New_York')
+    except ImportError:
+        try:
+            import pytz
+            et_tz = pytz.timezone('America/New_York')
+        except ImportError:
+            et_tz = None
+    result = {'pdh': None, 'pdl': None, 'pmh': None, 'pml': None}
+    try:
+        daily = data_fetcher.get_stock_data(symbol, period='5d', interval='1d')
+        if daily and not daily.get('error') and daily.get('highs') and len(daily['highs']) >= 2:
+            highs = daily['highs']
+            lows = daily['lows']
+            result['pdh'] = round(float(highs[-2]), 2)
+            result['pdl'] = round(float(lows[-2]), 2)
+        intra = data_fetcher.get_stock_data(symbol, period='1d', interval='5m')
+        if intra and not intra.get('error') and et_tz and intra.get('timestamps') and intra.get('highs'):
+            from datetime import datetime
+            pm_highs, pm_lows = [], []
+            for i, ts in enumerate(intra['timestamps']):
+                try:
+                    if isinstance(ts, (int, float)):
+                        dt = datetime.fromtimestamp(ts / 1000 if ts > 1e12 else ts, tz=et_tz)
+                    else:
+                        s = str(ts).strip().replace('Z', '+00:00')
+                        dt = datetime.fromisoformat(s)
+                        if dt.tzinfo is None:
+                            dt = et_tz.localize(dt) if hasattr(et_tz, 'localize') else dt.replace(tzinfo=et_tz)
+                        else:
+                            dt = dt.astimezone(et_tz)
+                except Exception:
+                    continue
+                if dt.hour < 9 or (dt.hour == 9 and dt.minute < 30):
+                    pm_highs.append(float(intra['highs'][i]))
+                    pm_lows.append(float(intra['lows'][i]))
+            if pm_highs:
+                result['pmh'] = round(max(pm_highs), 2)
+            if pm_lows:
+                result['pml'] = round(min(pm_lows), 2)
+        return jsonify(result), 200
+    except Exception as e:
+        logger.exception('chart_levels symbol=%s exception=%s', symbol, e)
+        return jsonify(result), 200
+
 @app.route('/api/indicators/<symbol>')
 def get_indicators(symbol):
     symbol = (symbol or '').strip().upper()
