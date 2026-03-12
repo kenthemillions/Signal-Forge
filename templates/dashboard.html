@@ -623,8 +623,8 @@
                         </div>
                         <div class="volume-chart-container mt-2">
                             <canvas id="volume-chart" style="width: 100%; height: 100%;"></canvas>
-                            <div id="volume-spike-alert" class="volume-spike-indicator" style="display:none;">
-                                <i class="bi bi-lightning-charge-fill"></i> HIGH ACTIVITY
+                            <div id="volume-state-alert" class="volume-state-indicator" style="display:none;">
+                                <span id="volume-state-icon"></span><span id="volume-state-text"></span>
                             </div>
                         </div>
                     </div>
@@ -877,8 +877,7 @@
                             <div>chart symbol: <span id="module-chart-symbol">--</span></div>
                             <div>chart endpoint: <span id="module-chart-endpoint">--</span></div>
                             <div>chart status: <span id="module-chart-status">--</span> result: <span id="module-chart-result">--</span></div>
-                            <div>chart mode: <span id="module-chart-mode">--</span> timeframe: <span id="module-chart-timeframe">--</span> period: <span id="module-chart-period">--</span> interval: <span id="module-chart-interval">--</span> bars: <span id="module-chart-bars">--</span></div>
-                            <div>chart invalid removed: <span id="module-chart-invalid-removed">--</span> render type: <span id="module-chart-render-type">--</span></div>
+                            <div>chart mode: <span id="module-chart-mode">--</span> renderer: <span id="module-chart-render-type">--</span> timeframe: <span id="module-chart-timeframe">--</span> total bars: <span id="module-chart-total-bars">--</span> valid: <span id="module-chart-bars">--</span> dropped: <span id="module-chart-invalid-removed">--</span></div>
                             <div>news symbol: <span id="module-news-symbol">--</span></div>
                             <div>news endpoint: <span id="module-news-endpoint">--</span> status: <span id="module-news-status">--</span> count: <span id="module-news-count">--</span> result: <span id="module-news-result">--</span></div>
                         </div>

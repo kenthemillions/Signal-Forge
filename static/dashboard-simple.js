@@ -303,6 +303,51 @@
         return JSON.stringify(b).slice(0, 80);
     }
 
+    var candlestickDrawPlugin = {
+        id: "candlestickDraw",
+        afterDatasetsDraw: function(chart) {
+            var opts = chart.options.plugins && chart.options.plugins.candlestickDraw;
+            if (!opts || !opts.ohlcData || !opts.ohlcData.length) return;
+            var ohlc = opts.ohlcData;
+            var xScale = chart.scales.x;
+            var yScale = chart.scales.y;
+            if (!xScale || !yScale) return;
+            var ctx = chart.ctx;
+            var n = ohlc.length;
+            var categoryWidth = n > 1 ? Math.abs(xScale.getPixelForValue(1) - xScale.getPixelForValue(0)) : 40;
+            var bodyWidth = Math.max(2, Math.min(categoryWidth * 0.7, 24));
+            var wickColor = "rgba(148, 163, 184, 0.95)";
+            var upColor = "rgba(34, 197, 94, 0.95)";
+            var downColor = "rgba(239, 68, 68, 0.95)";
+            ctx.save();
+            for (var i = 0; i < n; i++) {
+                var b = ohlc[i];
+                var o = Number(b.o), h = Number(b.h), l = Number(b.l), c = Number(b.c);
+                var xPix = xScale.getPixelForValue(i);
+                var yH = yScale.getPixelForValue(h);
+                var yL = yScale.getPixelForValue(l);
+                var yO = yScale.getPixelForValue(o);
+                var yC = yScale.getPixelForValue(c);
+                ctx.strokeStyle = wickColor;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(xPix, yH);
+                ctx.lineTo(xPix, yL);
+                ctx.stroke();
+                var bodyTop = Math.min(yO, yC);
+                var bodyBottom = Math.max(yO, yC);
+                var bodyHeight = bodyBottom - bodyTop;
+                if (bodyHeight < 1) bodyHeight = 1;
+                bodyBottom = bodyTop + bodyHeight;
+                var half = bodyWidth / 2;
+                ctx.fillStyle = c >= o ? upColor : downColor;
+                ctx.fillRect(xPix - half, bodyTop, bodyWidth, bodyHeight);
+            }
+            ctx.restore();
+        }
+    };
+    if (typeof Chart !== "undefined" && Chart.register) Chart.register(candlestickDrawPlugin);
+
     function createLineChart() {
         if (!chartCanvas || typeof Chart === "undefined") return;
         if (priceChart) priceChart.destroy();
@@ -352,36 +397,35 @@
         var yMax = dataMax + pad;
 
         var labels = [];
-        var bodyData = [];
-        var bodyColors = [];
+        var closeData = [];
         for (var i = 0; i < n; i++) {
             var b = ohlcData[i];
-            var o = b.o, h = b.h, l = b.l, c = b.c;
             var xVal = b.x;
             labels.push(typeof xVal === "number" ? new Date(xVal).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : (xVal instanceof Date ? xVal.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : String(i)));
-            bodyData.push([Number(Math.min(o, c)), Number(Math.max(o, c))]);
-            bodyColors.push(c >= o ? "rgba(34, 197, 94, 0.92)" : "rgba(239, 68, 68, 0.92)");
+            closeData.push(b.c);
         }
 
         try {
             priceChart = new Chart(chartCanvas.getContext("2d"), {
-                type: "bar",
+                type: "line",
                 data: {
                     labels: labels,
                     datasets: [{
                         label: isHA ? "Heikin Ashi" : "OHLC",
-                        data: bodyData,
-                        backgroundColor: bodyColors,
-                        borderColor: bodyColors.map(function(c) { return c.replace("0.92", "1"); }),
+                        data: closeData,
                         borderWidth: 0,
-                        barPercentage: 0.7,
-                        categoryPercentage: 0.9
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    plugins: {
+                        legend: { display: false },
+                        candlestickDraw: { ohlcData: ohlcData }
+                    },
                     scales: {
                         x: {
                             display: true,
@@ -399,7 +443,7 @@
                     }
                 }
             });
-            if (setRenderType) setDebug({ "module-chart-render-type": isHA ? "HA (bar)" : "candle (bar)" });
+            if (setRenderType) setDebug({ "module-chart-render-type": isHA ? "HA (canvas)" : "candle (canvas)" });
             return true;
         } catch (err) {
             if (setRenderType) setDebug({ "module-chart-render-type": "error: " + (err.message || String(err)) });
@@ -494,24 +538,25 @@
             var closes = filtered.closes;
             var n = closes.length;
             var removed = filtered.removed;
+            var totalBars = (rawC && rawC.length) || 0;
 
-            var first3 = [];
-            var last3 = [];
-            for (var fi = 0; fi < Math.min(3, n); fi++) {
-                first3.push({ x: timestamps[fi], o: opens[fi], h: highs[fi], l: lows[fi], c: closes[fi] });
+            var first2 = [], last2 = [];
+            for (var fi = 0; fi < Math.min(2, n); fi++) {
+                first2.push({ x: timestamps[fi], o: opens[fi], h: highs[fi], l: lows[fi], c: closes[fi] });
             }
-            for (var li = Math.max(0, n - 3); li < n; li++) {
-                last3.push({ x: timestamps[li], o: opens[li], h: highs[li], l: lows[li], c: closes[li] });
+            for (var li = Math.max(0, n - 2); li < n; li++) {
+                last2.push({ x: timestamps[li], o: opens[li], h: highs[li], l: lows[li], c: closes[li] });
             }
             if (typeof console !== "undefined" && console.log) {
-                console.log("[chart audit] symbol=" + sym + " timeframe=" + interval + " period=" + period + " mode=" + (mode || "line") + " bars=" + n + " invalid_removed=" + removed + " render_type=" + (mode === "line" ? "line" : (mode === "ha" ? "HA" : "candle")));
-                console.log("[chart audit] first3=" + JSON.stringify(first3));
-                console.log("[chart audit] last3=" + JSON.stringify(last3));
+                console.log("[chart audit] symbol=" + sym + " timeframe=" + interval + " mode=" + (mode || "line") + " total=" + totalBars + " valid=" + n + " dropped=" + removed + " renderer=" + (mode === "line" ? "line" : (mode === "ha" ? "HA" : "candle")));
+                console.log("[chart audit] first2=" + JSON.stringify(first2));
+                console.log("[chart audit] last2=" + JSON.stringify(last2));
             }
             setDebug({
                 "module-chart-bars": String(n),
+                "module-chart-total-bars": String(totalBars),
                 "module-chart-invalid-removed": String(removed),
-                "module-chart-render-type": mode === "line" ? "line" : (mode === "ha" ? "HA" : "candlestick")
+                "module-chart-render-type": mode === "line" ? "line" : (mode === "ha" ? "HA (canvas)" : "candle (canvas)")
             });
 
             if (mode === "candle" || mode === "ha") {
