@@ -150,7 +150,7 @@
 
         initCharts();
         var refreshBtn = document.getElementById("ticker-card-refresh");
-        if (refreshBtn) refreshBtn.addEventListener("click", function() { loadQuote(currentTicker); });
+        if (refreshBtn) refreshBtn.addEventListener("click", function() { onSymbolChanged(currentTicker); });
 
         var timeframeLabel = document.getElementById("chart-timeframe-label");
         document.querySelectorAll(".timeframe-btn").forEach(function(btn) {
@@ -204,12 +204,25 @@
         var refreshSignalBtn = document.getElementById("refresh-signal");
         if (refreshSignalBtn) refreshSignalBtn.addEventListener("click", function() { onSymbolChanged(currentTicker); });
 
+        document.querySelectorAll(".open-scan-btn").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+                document.querySelectorAll(".open-scan-btn").forEach(function(b) { b.classList.remove("active"); });
+                this.classList.add("active");
+                var phase = this.getAttribute("data-phase") || "5min";
+                loadMarketOpenScan(phase);
+            });
+        });
+
+        var cheapRadarRefresh = document.getElementById("cheap-options-radar-refresh");
+        if (cheapRadarRefresh) cheapRadarRefresh.addEventListener("click", function() { loadCheapOptionsRadar(currentTicker); });
+
         onSymbolChanged(currentTicker);
     }
 
     async function onSymbolChanged(symbol) {
         var sym = (symbol || "SPY").toString().trim().toUpperCase();
         currentTicker = sym;
+        if (typeof window !== "undefined") window.__currentTicker = sym;
         var select = document.getElementById("ticker-select");
         if (select) {
             var found = false;
@@ -232,6 +245,11 @@
         await loadKeyLevels(sym);
         await loadScalpingLevels(sym);
         await loadPremarketTrend(sym);
+        await loadSignals(sym);
+        var activePhase = (document.querySelector(".open-scan-btn.active") && document.querySelector(".open-scan-btn.active").getAttribute("data-phase")) || "5min";
+        await loadMarketOpenScan(activePhase);
+        await loadTradingIntelligence(sym);
+        await loadCheapOptionsRadar(sym);
         try {
             if (typeof window !== "undefined" && window.dispatchEvent) {
                 window.dispatchEvent(new CustomEvent("symbolChanged", { detail: { symbol: sym } }));
@@ -887,6 +905,186 @@
         }
     }
     window.refreshPremarket = loadPremarketTrend;
+
+    async function loadSignals(symbol) {
+        var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
+        var feed = document.getElementById("signal-feed");
+        if (!feed) return;
+        feed.innerHTML = "<div class=\"list-group-item bg-dark text-muted text-center py-3\">Loading...</div>";
+        try {
+            var res = await fetch("/api/signals?limit=20");
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            var signals = Array.isArray(data) ? data : [];
+            var forSymbol = signals.filter(function(s) { return (s.symbol || "").toUpperCase() === sym; }).slice(0, 10);
+            feed.innerHTML = "";
+            if (forSymbol.length === 0) {
+                feed.innerHTML = "<div class=\"list-group-item bg-dark text-muted text-center py-3\">No signals yet for " + sym + "</div>";
+                return;
+            }
+            forSymbol.forEach(function(signal) {
+                var typeClass = (signal.signal_type || "").indexOf("BUY") >= 0 ? "text-success" : (signal.signal_type || "").indexOf("SELL") >= 0 ? "text-danger" : "text-warning";
+                var time = signal.timestamp ? new Date(signal.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "--:--";
+                var item = document.createElement("div");
+                item.className = "list-group-item bg-dark border-secondary py-2";
+                item.innerHTML = "<div class=\"d-flex justify-content-between align-items-center\"><div><span class=\"fw-bold text-light\">" + escapeHtml(signal.symbol || "--") + "</span><span class=\"badge " + typeClass.replace("text-", "bg-") + " ms-2\">" + escapeHtml(signal.signal_type || "--") + "</span></div><small class=\"text-muted\">" + time + "</small></div><div class=\"small text-light\">$" + (signal.price != null ? Number(signal.price).toFixed(2) : "0.00") + " | " + (signal.strength != null ? signal.strength : 0) + "%</div>";
+                feed.appendChild(item);
+            });
+        } catch (e) {
+            feed.innerHTML = "<div class=\"list-group-item bg-dark text-muted text-center py-3\">No signals yet</div>";
+        }
+    }
+
+    async function loadMarketOpenScan(phase) {
+        var ph = phase || "5min";
+        var content = document.getElementById("market-open-content");
+        var phaseLabel = document.getElementById("market-open-phase");
+        var phaseLabels = { premarket: "Pre-Market Analysis", "5min": "First 5 Minutes", "15min": "First 15 Minutes", "30min": "First 30 Minutes" };
+        if (phaseLabel) phaseLabel.innerHTML = "<span class=\"badge bg-info\"><i class=\"bi bi-arrow-clockwise spin\"></i> Scanning...</span>";
+        if (content) content.innerHTML = "<div class=\"text-center text-info py-3\"><i class=\"bi bi-arrow-clockwise spin\"></i> Finding top trending stocks...</div>";
+        try {
+            var res = await fetch("/api/market-open-scan?phase=" + encodeURIComponent(ph));
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (phaseLabel) phaseLabel.innerHTML = "<span class=\"badge bg-success\">" + (data && data.phase_label ? data.phase_label : phaseLabels[ph] || ph) + "</span>";
+            if (data && data.success && data.trending_picks && data.trending_picks.length > 0) {
+                var picksHtml = data.trending_picks.map(function(pick, i) {
+                    var isCall = pick.option_type === "CALL";
+                    var glowClass = isCall ? "lottery-glow-green" : "lottery-glow-red";
+                    return "<div class=\"lottery-pick-card " + glowClass + " mb-2\"><div class=\"lottery-pick-header\"><span class=\"lottery-rank\">#" + (i + 1) + "</span><span class=\"lottery-symbol\">" + escapeHtml(pick.symbol || "") + "</span><span class=\"lottery-direction\">" + (pick.option_type || "") + "</span></div><div class=\"lottery-price\">$" + (pick.current_price != null ? Number(pick.current_price).toFixed(2) : "") + " <span class=\"" + (pick.price_change_pct >= 0 ? "text-success" : "text-danger") + "\">" + (pick.price_change_pct >= 0 ? "+" : "") + (pick.price_change_pct != null ? Number(pick.price_change_pct).toFixed(1) : "") + "%</span></div><div class=\"lottery-pick-body\"><div class=\"lottery-reason\">" + escapeHtml(pick.reason || "") + "</div></div></div>";
+                }).join("");
+                content.innerHTML = "<div class=\"mb-2 text-center\"><small class=\"text-muted\">Scanned at " + (data.scan_time || "") + " | " + (data.total_scanned || 0) + " tickers</small></div>" + picksHtml;
+            } else {
+                content.innerHTML = "<div class=\"text-center text-muted py-3\"><i class=\"bi bi-search\"></i> No strong trends found yet.</div>";
+            }
+        } catch (e) {
+            if (phaseLabel) phaseLabel.innerHTML = "<span class=\"badge bg-secondary\">Scan failed</span>";
+            if (content) content.innerHTML = "<div class=\"text-center text-danger py-3\">Error scanning.</div>";
+        }
+    }
+
+    var ALERT_SCORE_THRESHOLD = 70;
+    var lastAlertKey = "";
+
+    function triggerAlert(title, body, type) {
+        if (typeof console !== "undefined" && console.log) {
+            console.log("[Alert] " + title + " | " + body);
+        }
+        try {
+            if (typeof window !== "undefined" && window.Notification && Notification.permission === "granted") {
+                new Notification(title, { body: body });
+            }
+        } catch (e) {}
+    }
+
+    async function loadTradingIntelligence(symbol) {
+        var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
+        var phaseEl = document.getElementById("market-phase-value");
+        var phaseDesc = document.getElementById("market-phase-desc");
+        var phaseConf = document.getElementById("market-phase-confidence");
+        try {
+            var res = await fetch("/api/trading-intelligence/" + encodeURIComponent(sym) + "?_t=" + Date.now());
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!data || data.error) {
+                if (phaseEl) phaseEl.textContent = "--";
+                if (phaseDesc) phaseDesc.textContent = data && data.error ? data.error : "No data";
+                if (phaseConf) phaseConf.textContent = "--";
+                updateDebugPanelStep5(null, sym);
+                return;
+            }
+            var mp = data.market_phase || {};
+            if (phaseEl) phaseEl.textContent = mp.phase || "--";
+            if (phaseDesc) phaseDesc.textContent = mp.description || "--";
+            if (phaseConf) phaseConf.textContent = (mp.confidence != null ? Math.round(mp.confidence) + "%" : "--");
+            var signals = data.signals || [];
+            var feed = document.getElementById("signal-feed");
+            if (feed && signals.length > 0) {
+                var existingPlaceholder = feed.querySelector(".text-muted.text-center");
+                if (existingPlaceholder) existingPlaceholder.remove();
+                for (var i = 0; i < Math.min(signals.length, 5); i++) {
+                    var s = signals[i];
+                    var typeClass = (s.signal_type || "").indexOf("Bear") !== -1 || (s.trend_direction || "") === "BEARISH" ? "text-danger" : "text-success";
+                    var timeStr = s.timestamp ? new Date(s.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "--:--";
+                    var scoreStr = s.trade_score != null ? " Score " + Math.round(s.trade_score) : "";
+                    var item = document.createElement("div");
+                    item.className = "list-group-item bg-dark border-secondary py-2";
+                    item.innerHTML = "<div class=\"d-flex justify-content-between align-items-center\"><div><span class=\"fw-bold text-light\">" + escapeHtml(sym) + "</span> <span class=\"badge " + typeClass.replace("text-", "bg-") + " ms-1\">" + escapeHtml(s.signal_type || "Signal") + "</span><span class=\"badge bg-info ms-1\">" + (s.trade_score != null ? Math.round(s.trade_score) : "--") + "</span></div><small class=\"text-muted\">" + timeStr + "</small></div><div class=\"small text-light\">$" + (s.price != null ? Number(s.price).toFixed(2) : "--") + " | " + (s.confidence != null ? s.confidence + "%" : "") + scoreStr + "</div>";
+                    if (!feed.querySelector(".list-group-item:first-child") || feed.querySelector(".list-group-item:first-child").textContent.indexOf(sym) === -1) {
+                        feed.insertBefore(item, feed.firstChild);
+                    }
+                }
+                while (feed.children.length > 15) feed.removeChild(feed.lastChild);
+            }
+            updateDebugPanelStep5(data, sym);
+            var mom = data.momentum || {};
+            var score = (data.trade_scoring || {}).score;
+            if (score != null && score >= ALERT_SCORE_THRESHOLD) {
+                var key = sym + "|" + score + "|" + (signals[0] && signals[0].signal_type);
+                if (key !== lastAlertKey) {
+                    lastAlertKey = key;
+                    triggerAlert("High-probability signal: " + sym, (signals[0] && signals[0].signal_type) + " Score " + Math.round(score), "signal");
+                }
+            }
+            if (signals.length > 0 && (signals[0].signal_type === "VWAP Reclaim" || signals[0].signal_type === "Breakout")) {
+                var key2 = sym + "|vwap|" + (signals[0].timestamp || "");
+                if (key2 !== lastAlertKey) {
+                    lastAlertKey = key2;
+                    triggerAlert(signals[0].signal_type + " " + sym, "Price $" + (signals[0].price != null ? signals[0].price.toFixed(2) : ""), "event");
+                }
+            }
+        } catch (e) {
+            if (phaseEl) phaseEl.textContent = "--";
+            if (phaseDesc) phaseDesc.textContent = "Error loading";
+            updateDebugPanelStep5(null, sym);
+        }
+    }
+
+    function updateDebugPanelStep5(data, symbol) {
+        var sym = (symbol || currentTicker || "").toString().toUpperCase();
+        setEl("debug-current-ticker", sym || "--");
+        setEl("debug-signal-count", data && data.signals ? String(data.signals.length) : "0");
+        setEl("debug-options-scanner-status", data ? "ok" : "--");
+        setEl("debug-momentum-score", data && data.momentum && data.momentum.momentum_score != null ? String(data.momentum.momentum_score) : "--");
+        setEl("debug-market-phase", data && data.market_phase ? (data.market_phase.phase || "--") : "--");
+        setEl("debug-engine-status", data ? "ok" : "--");
+        var lastSig = data && data.signals && data.signals[0] ? data.signals[0].timestamp : null;
+        setEl("debug-last-signal-time", lastSig ? new Date(lastSig).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--");
+        function setEl(id, val) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = val;
+        }
+    }
+
+    async function loadCheapOptionsRadar(symbol) {
+        var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
+        var content = document.getElementById("cheap-options-radar-content");
+        if (!content) return;
+        content.innerHTML = "<div class=\"text-muted text-center py-2\"><i class=\"bi bi-arrow-clockwise spin\"></i> Loading...</div>";
+        try {
+            var res = await fetch("/api/cheap-options-radar/" + encodeURIComponent(sym) + "?_t=" + Date.now());
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!data || data.error) {
+                content.innerHTML = "<div class=\"text-muted text-center py-2\">" + (data && data.error ? data.error : "No options data") + "</div>";
+                return;
+            }
+            var contracts = data.contracts || [];
+            if (contracts.length === 0) {
+                content.innerHTML = "<div class=\"text-muted text-center py-2\">No cheap options found for " + sym + "</div>";
+                return;
+            }
+            var html = "";
+            for (var i = 0; i < contracts.length; i++) {
+                var c = contracts[i];
+                html += "<div class=\"d-flex justify-content-between align-items-center py-1 border-bottom border-secondary\"><span>" + escapeHtml(c.option_type || "CALL") + " $" + (c.strike != null ? c.strike : "--") + "</span><span>$" + (c.premium != null ? Number(c.premium).toFixed(2) : "--") + "</span><span class=\"badge bg-secondary\">" + (c.signal_score != null ? c.signal_score : "--") + "</span></div>";
+                if (c.expiration) html += "<div class=\"small text-muted\">Exp " + c.expiration + "</div>";
+            }
+            content.innerHTML = html;
+        } catch (e) {
+            content.innerHTML = "<div class=\"text-muted text-center py-2\">Error loading options.</div>";
+        }
+    }
 
     async function loadAnalysis(symbol) {
         var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();

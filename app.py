@@ -2714,6 +2714,25 @@ def market_open_scan():
 
 from services.time_edge_analyzer import time_edge_analyzer
 from services.late_day_gatekeeper import late_day_gatekeeper
+from services.trading_intelligence import get_full_trading_intelligence
+
+@app.route('/api/trading-intelligence/<symbol>')
+def get_trading_intelligence(symbol):
+    """Step 5: Full trading intelligence (signals, momentum, R:R, scoring, market phase)."""
+    symbol = (symbol or '').strip().upper()
+    if not symbol:
+        return jsonify({'error': 'Symbol required'}), 400
+    try:
+        data = data_fetcher.get_stock_data(symbol, period='5d', interval='5m')
+        if not data or data.get('error'):
+            return jsonify({'error': data.get('error', 'No data'), 'symbol': symbol}), 200
+        settings = UserSettings.query.first() if _db_ready else None
+        indicators = indicator_engine.calculate_all(data, settings)
+        result = get_full_trading_intelligence(symbol, '5m', data, indicators)
+        return jsonify(result)
+    except Exception as e:
+        logger.exception('trading_intelligence symbol=%s error=%s', symbol, e)
+        return jsonify({'error': str(e), 'symbol': symbol}), 200
 
 @app.route('/api/cheap-options')
 def cheap_options_scan():
@@ -2726,6 +2745,42 @@ def cheap_options_scan():
         'message': 'Initial scan in progress, please try again in 30 seconds',
         'timestamp': datetime.now().isoformat()
     }), 202
+
+@app.route('/api/cheap-options-radar/<symbol>')
+def cheap_options_radar_symbol(symbol):
+    """Step 5: Cheap Options Radar for a single symbol - strike, expiration, premium, R:R, signal score."""
+    symbol = (symbol or '').strip().upper()
+    if not symbol:
+        return jsonify({'error': 'Symbol required', 'contracts': []}), 400
+    try:
+        from services.cheap_option_radar import CheapOptionRadar
+        radar = CheapOptionRadar()
+        result = radar.scan(universe=[symbol], limit=10)
+        candidates = result.get('candidates', [])
+        contracts = []
+        for c in candidates:
+            opt = c.get('option') or {}
+            atr_pct = c.get('atr_pct') or 0
+            contracts.append({
+                'symbol': c.get('symbol'),
+                'strike': opt.get('strike') or c.get('strike'),
+                'expiration': opt.get('expiration') or c.get('expiration'),
+                'premium': c.get('premium') or opt.get('premium', 0),
+                'option_type': (c.get('option_type') or opt.get('type', 'call')).upper(),
+                'estimated_rr': round(atr_pct * 100, 1) if atr_pct else None,
+                'signal_score': c.get('score', 0),
+                'reason': (c.get('reasons') or [])[0] if c.get('reasons') else '',
+            })
+        return jsonify({
+            'symbol': symbol,
+            'contracts': contracts,
+            'scanned': result.get('scanned', 1),
+            'qualified': result.get('qualified', 0),
+            'timestamp': result.get('timestamp', datetime.now().isoformat()),
+        })
+    except Exception as e:
+        logger.exception('cheap_options_radar symbol=%s error=%s', symbol, e)
+        return jsonify({'error': str(e), 'symbol': symbol, 'contracts': []}), 200
 
 @app.route('/api/time-edge/<symbol>')
 def time_edge_analysis(symbol):
