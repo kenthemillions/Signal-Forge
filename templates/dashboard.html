@@ -868,6 +868,7 @@
                             <div>quote price_source: <span id="simple-debug-price-source">--</span></div>
                             <div>quote previous_close: <span id="simple-debug-prev-close">--</span></div>
                             <div>quote session: <span id="simple-debug-session">--</span></div>
+                            <div>quote computed_change: <span id="simple-debug-computed-change">--</span> computed_pct: <span id="simple-debug-computed-pct">--</span></div>
                             <div>analysis symbol: <span id="module-analysis-symbol">--</span></div>
                             <div>analysis endpoint: <span id="module-analysis-endpoint">--</span></div>
                             <div>analysis status: <span id="module-analysis-status">--</span></div>
@@ -880,6 +881,10 @@
                             <div>chart mode: <span id="module-chart-mode">--</span> renderer: <span id="module-chart-render-type">--</span> timeframe: <span id="module-chart-timeframe">--</span> total bars: <span id="module-chart-total-bars">--</span> valid: <span id="module-chart-bars">--</span> dropped: <span id="module-chart-invalid-removed">--</span></div>
                             <div>news symbol: <span id="module-news-symbol">--</span></div>
                             <div>news endpoint: <span id="module-news-endpoint">--</span> status: <span id="module-news-status">--</span> count: <span id="module-news-count">--</span> result: <span id="module-news-result">--</span></div>
+                            <div>timeframe status: <span id="module-timeframe-status">--</span> result: <span id="module-timeframe-result">--</span></div>
+                            <div>key levels symbol: <span id="module-keylevels-symbol">--</span> status: <span id="module-keylevels-status">--</span> result: <span id="module-keylevels-result">--</span></div>
+                            <div>scalping symbol: <span id="module-scalping-symbol">--</span> status: <span id="module-scalping-status">--</span> result: <span id="module-scalping-result">--</span></div>
+                            <div>premarket symbol: <span id="module-premarket-symbol">--</span> status: <span id="module-premarket-status">--</span> result: <span id="module-premarket-result">--</span></div>
                         </div>
                         <div class="d-flex flex-column gap-2">
                             <div class="d-flex align-items-center gap-1 flex-wrap">
@@ -920,7 +925,7 @@
                 <div class="card bg-dark border-info mb-3" id="premarket-panel">
                     <div class="card-header bg-info bg-opacity-25">
                         <i class="bi bi-sunrise text-info"></i> Premarket Trend
-                        <button class="btn btn-sm btn-outline-info float-end" onclick="window.tradingApp.loadPremarketAnalysis()">
+                        <button class="btn btn-sm btn-outline-info float-end" onclick="window.refreshPremarket && window.refreshPremarket(window.getCurrentTicker ? window.getCurrentTicker() : document.getElementById('ticker-select').value)">
                             <i class="bi bi-arrow-clockwise"></i>
                         </button>
                     </div>
@@ -1670,7 +1675,7 @@
         }
         
         async function refreshSeasonality() {
-            const ticker = document.getElementById('ticker-select').value || 'SPY';
+            const ticker = (window.__currentTicker != null ? window.__currentTicker : (document.getElementById('ticker-select') && document.getElementById('ticker-select').value)) || 'SPY';
             const refreshBtn = document.getElementById('season-refresh');
             refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i>';
             refreshBtn.disabled = true;
@@ -1868,7 +1873,7 @@
         document.getElementById('inst-refresh').addEventListener('click', refreshInstitutionalAnalysis);
         
         async function refreshInstitutionalAnalysis() {
-            const ticker = document.getElementById('ticker-select').value || 'SPY';
+            const ticker = (window.__currentTicker != null ? window.__currentTicker : (document.getElementById('ticker-select') && document.getElementById('ticker-select').value)) || 'SPY';
             const refreshBtn = document.getElementById('inst-refresh');
             refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Loading...';
             refreshBtn.disabled = true;
@@ -1905,7 +1910,7 @@
         }
         
         function updateInstitutionalUI(data) {
-            const ticker = document.getElementById('ticker-select').value || 'SPY';
+            const ticker = (window.__currentTicker != null ? window.__currentTicker : (document.getElementById('ticker-select') && document.getElementById('ticker-select').value)) || 'SPY';
             
             if ((data.state === 'BUY' || data.state === 'SELL') && lastInstitutionalState !== data.state) {
                 showTradeNotification(data.state, ticker, data.confidence);
@@ -2024,9 +2029,17 @@
         }
         
         document.getElementById('ticker-select').addEventListener('change', function() {
+            var sym = (window.__currentTicker != null ? window.__currentTicker : this.value) || 'SPY';
             if (currentMode === 'institutional') {
                 refreshInstitutionalAnalysis();
             }
+            refreshTimeEdge();
+        });
+        window.addEventListener('symbolChanged', function(e) {
+            var sym = e.detail && e.detail.symbol;
+            if (!sym) return;
+            refreshSeasonality();
+            if (currentMode === 'institutional') refreshInstitutionalAnalysis();
             refreshTimeEdge();
         });
         
@@ -2133,7 +2146,7 @@
         }
         
         async function refreshTimeEdge() {
-            const ticker = document.getElementById('ticker-select').value || 'SPY';
+            const ticker = (window.__currentTicker != null ? window.__currentTicker : (document.getElementById('ticker-select') && document.getElementById('ticker-select').value)) || 'SPY';
             const btn = document.getElementById('time-edge-refresh-btn');
             const settings = JSON.parse(localStorage.getItem('user_settings') || '{}');
             const tz = settings.timezone || 'CT';

@@ -29,9 +29,12 @@
         }
     }
 
+    window.getCurrentTicker = function() { return currentTicker; };
+
     async function loadQuote(symbol) {
         var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
         currentTicker = sym;
+        if (typeof window !== "undefined") window.__currentTicker = sym;
         var select = document.getElementById("ticker-select");
         if (select) {
             var found = false;
@@ -103,7 +106,9 @@
                 "simple-debug-error": "none",
                 "simple-debug-price-source": qd.price_source || "--",
                 "simple-debug-prev-close": qd.previous_close != null ? String(qd.previous_close) : "--",
-                "simple-debug-session": qd.session || "--"
+                "simple-debug-session": qd.session || "--",
+                "simple-debug-computed-change": qd.computed_change != null ? String(qd.computed_change) : (change != null ? String(change) : "--"),
+                "simple-debug-computed-pct": qd.computed_percentChange != null ? String(qd.computed_percentChange) : (pct != null ? String(pct) + "%" : "--")
             });
         } catch (e) {
             var msg = (e && e.message) ? e.message : String(e);
@@ -140,6 +145,7 @@
             currentTicker = (select.value || "SPY").toString().trim().toUpperCase();
         }
 
+        if (typeof window !== "undefined") window.__currentTicker = currentTicker;
         setDebug({ "simple-debug-initialized": "yes", "simple-debug-ticker": currentTicker });
 
         initCharts();
@@ -222,6 +228,15 @@
         await loadAnalysis(sym);
         await loadChart(sym, selectedTimeframe, selectedChartMode);
         await loadNews(sym);
+        await loadTimeframeAnalysis(sym);
+        await loadKeyLevels(sym);
+        await loadScalpingLevels(sym);
+        await loadPremarketTrend(sym);
+        try {
+            if (typeof window !== "undefined" && window.dispatchEvent) {
+                window.dispatchEvent(new CustomEvent("symbolChanged", { detail: { symbol: sym } }));
+            }
+        } catch (evErr) {}
     }
 
     function showChartNoData(show) {
@@ -704,6 +719,174 @@
             if (listEl) listEl.innerHTML = "<div class=\"list-group-item bg-transparent text-muted border-0\">No news available.</div>";
         }
     }
+
+    async function loadTimeframeAnalysis(symbol) {
+        var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
+        var url = "/api/multi-timeframe/" + encodeURIComponent(sym);
+        var el = document.getElementById("timeframe-confluence");
+        var statusEl = document.getElementById("module-timeframe-status");
+        if (statusEl) statusEl.textContent = "...";
+        if (el) el.innerHTML = "<div class=\"text-center text-muted py-2\"><i class=\"bi bi-arrow-clockwise spin\"></i> Loading...</div>";
+        try {
+            var res = await fetch(url);
+            if (statusEl) statusEl.textContent = String(res.status);
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!data || data.error) {
+                if (el) el.innerHTML = "<div class=\"text-center text-muted py-2\">No timeframe data for " + escapeHtml(sym) + ".</div>";
+                setDebug({ "module-timeframe-result": data && data.error ? data.error : "no data" });
+                return;
+            }
+            var cf = data.confluence || {};
+            var html = "<div class=\"small\"><span class=\"badge me-2\" style=\"background:" + (cf.color || "#888") + "\">" + (cf.signal || "WAIT") + "</span> Bullish: " + (cf.bullish_count || 0) + " Bearish: " + (cf.bearish_count || 0) + " Total: " + (cf.total || 0) + "</div>";
+            if (data.timeframes && typeof data.timeframes === "object") {
+                for (var k in data.timeframes) {
+                    if (!data.timeframes.hasOwnProperty(k)) continue;
+                    var tf = data.timeframes[k];
+                    html += "<div class=\"d-flex justify-content-between py-1 border-bottom border-secondary\"><span>" + escapeHtml(k) + "</span><span style=\"color:" + (tf.color || "#888") + "\">" + (tf.signal || tf.trend || "—") + "</span></div>";
+                }
+            }
+            if (el) el.innerHTML = html;
+            var lastRef = document.getElementById("last-refresh-time");
+            if (lastRef) lastRef.textContent = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            setDebug({ "module-timeframe-result": "ok" });
+        } catch (e) {
+            var msg = (e && e.message) ? e.message : String(e);
+            if (el) el.innerHTML = "<div class=\"text-center text-danger py-2\">Error loading timeframe data.</div>";
+            setDebug({ "module-timeframe-status": "err", "module-timeframe-result": msg });
+        }
+    }
+
+    async function loadKeyLevels(symbol) {
+        var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
+        var url = "/api/pivot-points/" + encodeURIComponent(sym);
+        setDebug({ "module-keylevels-symbol": sym, "module-keylevels-status": "..." });
+        var resEl = document.getElementById("resistance-level");
+        var supEl = document.getElementById("support-level");
+        var priceEl = document.getElementById("sr-current-price");
+        var barEl = document.getElementById("price-position-bar");
+        try {
+            var res = await fetch(url);
+            setDebug({ "module-keylevels-status": String(res.status) });
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!data || data.error) {
+                if (resEl) resEl.textContent = "--";
+                if (supEl) supEl.textContent = "--";
+                if (priceEl) priceEl.textContent = "--";
+                if (barEl) barEl.style.width = "50%";
+                setDebug({ "module-keylevels-result": data && data.error ? data.error : "no data" });
+                return;
+            }
+            var cur = data.current_price != null ? Number(data.current_price) : NaN;
+            var r = data.nearest_resistance && data.nearest_resistance.price != null ? Number(data.nearest_resistance.price) : null;
+            var s = data.nearest_support && data.nearest_support.price != null ? Number(data.nearest_support.price) : null;
+            if (resEl) resEl.textContent = r != null ? r.toFixed(2) : "--";
+            if (supEl) supEl.textContent = s != null ? s.toFixed(2) : "--";
+            if (priceEl) priceEl.textContent = !isNaN(cur) ? cur.toFixed(2) : "--";
+            if (barEl && !isNaN(cur) && r != null && s != null && r > s) {
+                var pct = ((cur - s) / (r - s)) * 100;
+                pct = Math.max(0, Math.min(100, pct));
+                barEl.style.width = pct + "%";
+            }
+            setDebug({ "module-keylevels-result": "ok" });
+        } catch (e) {
+            if (resEl) resEl.textContent = "--";
+            if (supEl) supEl.textContent = "--";
+            if (priceEl) priceEl.textContent = "--";
+            setDebug({ "module-keylevels-status": "err", "module-keylevels-result": (e && e.message) ? e.message : String(e) });
+        }
+    }
+
+    async function loadScalpingLevels(symbol) {
+        var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
+        var url = "/api/scalping-levels/" + encodeURIComponent(sym);
+        var wrap = document.getElementById("scalping-levels-body");
+        var loadingEl = document.getElementById("scalping-loading");
+        setDebug({ "module-scalping-symbol": sym, "module-scalping-status": "..." });
+        if (loadingEl) loadingEl.textContent = "Loading levels...";
+        try {
+            var res = await fetch(url);
+            setDebug({ "module-scalping-status": String(res.status) });
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!data || data.error) {
+                if (loadingEl) loadingEl.textContent = "No scalping levels for " + sym + ".";
+                setDebug({ "module-scalping-result": data && data.error ? data.error : "no data" });
+                return;
+            }
+            if (loadingEl) loadingEl.style.display = "none";
+            var best = document.getElementById("scalping-best-range");
+            var atr = document.getElementById("scalping-atr-range");
+            var fib = document.getElementById("scalping-fib-levels");
+            var tfs = document.getElementById("scalping-timeframes");
+            var br = data.best_retracement_range || {};
+            if (best) best.textContent = br.zone ? "Best zone: " + br.zone + (br.timeframe ? " (" + br.timeframe + ")" : "") : "";
+            if (atr) atr.textContent = (br.atr_move != null) ? "ATR move: " + br.atr_move + (br.atr_pct != null ? " (" + br.atr_pct + "%)" : "") : "";
+            if (fib && br.levels && typeof br.levels === "object") {
+                var parts = [];
+                for (var lk in br.levels) { if (br.levels.hasOwnProperty(lk)) parts.push(lk + " " + br.levels[lk]); }
+                fib.innerHTML = parts.length ? parts.join(" · ") : "";
+            } else if (fib) fib.innerHTML = "";
+            if (tfs && data.timeframes && typeof data.timeframes === "object") {
+                var tfHtml = "";
+                for (var k in data.timeframes) {
+                    if (!data.timeframes.hasOwnProperty(k)) continue;
+                    var tfd = data.timeframes[k];
+                    tfHtml += "<div class=\"small text-muted\">" + escapeHtml(k) + (tfd && tfd.current_price != null ? " $" + tfd.current_price : "") + "</div>";
+                }
+                tfs.innerHTML = tfHtml || "";
+            }
+            setDebug({ "module-scalping-result": "ok" });
+        } catch (e) {
+            if (loadingEl) { loadingEl.style.display = ""; loadingEl.textContent = "Error loading levels."; }
+            setDebug({ "module-scalping-status": "err", "module-scalping-result": (e && e.message) ? e.message : String(e) });
+        }
+    }
+
+    async function loadPremarketTrend(symbol) {
+        var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
+        var url = "/api/premarket-analysis/" + encodeURIComponent(sym);
+        setDebug({ "module-premarket-symbol": sym, "module-premarket-status": "..." });
+        var dirEl = document.getElementById("premarket-direction");
+        var trendEl = document.getElementById("premarket-trend");
+        var priceEl = document.getElementById("premarket-price");
+        var changeEl = document.getElementById("premarket-change");
+        var outlookEl = document.getElementById("premarket-outlook");
+        try {
+            var res = await fetch(url);
+            setDebug({ "module-premarket-status": String(res.status) });
+            var data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (!data || data.error) {
+                if (dirEl) dirEl.textContent = "--";
+                if (trendEl) trendEl.textContent = "No premarket data for " + sym;
+                if (priceEl) priceEl.textContent = "$--";
+                if (changeEl) changeEl.textContent = "--";
+                if (outlookEl) outlookEl.textContent = "";
+                setDebug({ "module-premarket-result": data && data.error ? data.error : "no data" });
+                return;
+            }
+            if (dirEl) dirEl.textContent = data.direction || "--";
+            if (dirEl && data.color) dirEl.style.color = data.color;
+            if (trendEl) trendEl.textContent = data.trend || "--";
+            if (trendEl && data.color) trendEl.style.color = data.color;
+            if (priceEl) priceEl.textContent = data.current_price != null ? "$" + Number(data.current_price).toFixed(2) : "$--";
+            if (changeEl) {
+                var ch = data.change != null ? Number(data.change) : 0;
+                var pct = data.change_percent != null ? Number(data.change_percent) : 0;
+                changeEl.innerHTML = (ch >= 0 ? "+" : "") + ch.toFixed(2) + " (" + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%)";
+                changeEl.className = ch >= 0 ? "fw-bold text-success" : "fw-bold text-danger";
+            }
+            if (outlookEl) outlookEl.textContent = data.outlook || "";
+            setDebug({ "module-premarket-result": "ok" });
+        } catch (e) {
+            if (dirEl) dirEl.textContent = "--";
+            if (trendEl) trendEl.textContent = "Error loading premarket.";
+            setDebug({ "module-premarket-status": "err", "module-premarket-result": (e && e.message) ? e.message : String(e) });
+        }
+    }
+    window.refreshPremarket = loadPremarketTrend;
 
     async function loadAnalysis(symbol) {
         var sym = (symbol || currentTicker || "SPY").toString().trim().toUpperCase();
