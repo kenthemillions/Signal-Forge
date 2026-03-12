@@ -231,6 +231,57 @@
         }
     }
 
+    function safeNum(v) {
+        if (v == null) return NaN;
+        if (typeof v === "number" && isNaN(v)) return NaN;
+        var n = Number(v);
+        return isNaN(n) ? NaN : n;
+    }
+
+    function filterValidOhlcBars(timestamps, opens, highs, lows, closes) {
+        var n = Math.min(
+            (timestamps && timestamps.length) || 0,
+            (opens && opens.length) || 0,
+            (highs && highs.length) || 0,
+            (lows && lows.length) || 0,
+            (closes && closes.length) || 0
+        );
+        var outTs = [], outO = [], outH = [], outL = [], outC = [];
+        var removed = 0;
+        for (var i = 0; i < n; i++) {
+            var ts = timestamps[i];
+            var o = safeNum(opens[i]), h = safeNum(highs[i]), l = safeNum(lows[i]), c = safeNum(closes[i]);
+            if (!ts) { removed++; continue; }
+            if (isNaN(o) || isNaN(h) || isNaN(l) || isNaN(c)) { removed++; continue; }
+            if (h < l) { removed++; continue; }
+            if (h < o || h < c) { removed++; continue; }
+            if (l > o || l > c) { removed++; continue; }
+            outTs.push(ts);
+            outO.push(o);
+            outH.push(h);
+            outL.push(l);
+            outC.push(c);
+        }
+        var len = outC.length;
+        if (len < 2) return { timestamps: outTs, opens: outO, highs: outH, lows: outL, closes: outC, removed: removed };
+        var ranges = [];
+        for (var j = 0; j < len; j++) ranges.push(outH[j] - outL[j]);
+        ranges.sort(function(a, b) { return a - b; });
+        var medianRange = ranges[Math.floor(len / 2)] || 0;
+        var maxAllowed = medianRange * 5;
+        if (maxAllowed <= 0) maxAllowed = Infinity;
+        var outTs2 = [], outO2 = [], outH2 = [], outL2 = [], outC2 = [];
+        for (var k = 0; k < len; k++) {
+            if ((outH[k] - outL[k]) > maxAllowed) { removed++; continue; }
+            outTs2.push(outTs[k]);
+            outO2.push(outO[k]);
+            outH2.push(outH[k]);
+            outL2.push(outL[k]);
+            outC2.push(outC[k]);
+        }
+        return { timestamps: outTs2, opens: outO2, highs: outH2, lows: outL2, closes: outC2, removed: removed };
+    }
+
     function computeHeikinAshi(opens, highs, lows, closes) {
         var n = (closes && closes.length) || 0;
         var ha_o = [], ha_h = [], ha_l = [], ha_c = [];
@@ -242,6 +293,12 @@
             ha_l[i] = Math.min(l, ha_o[i], ha_c[i]);
         }
         return { opens: ha_o, highs: ha_h, lows: ha_l, closes: ha_c };
+    }
+
+    function barToAudit(b) {
+        if (!b) return "null";
+        if (typeof b.x !== "undefined") return "x=" + (b.x instanceof Date ? b.x.getTime() : b.x) + " o=" + b.o + " h=" + b.h + " l=" + b.l + " c=" + b.c;
+        return JSON.stringify(b).slice(0, 80);
     }
 
     function createLineChart() {
@@ -265,42 +322,72 @@
         });
     }
 
-    function createCandlestickChart(ohlcData, isHA) {
-        if (!chartCanvas || typeof Chart === "undefined") return;
-        var hasCandle = typeof Chart.controllers !== "undefined" && Chart.controllers.candlestick;
+    function createCandlestickChart(ohlcData, isHA, setRenderType) {
+        if (!chartCanvas || typeof Chart === "undefined") return false;
         if (priceChart) priceChart.destroy();
-        if (hasCandle && ohlcData && ohlcData.length > 0) {
-            priceChart = new Chart(chartCanvas.getContext("2d"), {
-                type: "candlestick",
-                data: {
-                    datasets: [{
-                        label: isHA ? "HA" : "Price",
-                        data: ohlcData,
-                        color: { up: "#00e676", down: "#ff5252", unchanged: "#888" },
-                        borderColor: { up: "#00e676", down: "#ff5252", unchanged: "#888" }
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { display: true, grid: { color: "rgba(255,255,255,0.1)" }, ticks: { color: "#888", maxTicksLimit: 8 } },
-                        y: { display: true, grid: { color: "rgba(255,255,255,0.1)" }, ticks: { color: "#888" } }
-                    }
-                }
-            });
-        } else {
+        priceChart = null;
+        if (!ohlcData || ohlcData.length < 2) {
+            if (setRenderType) setDebug({ "module-chart-render-type": "none (not enough bars)" });
             createLineChart();
-            if (priceChart && ohlcData && ohlcData.length) {
-                priceChart.data.labels = ohlcData.map(function(d) {
-                    var x = d.x;
-                    return (x instanceof Date) ? x.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : x;
-                });
-                priceChart.data.datasets[0].data = ohlcData.map(function(d) { return d.c; });
+            if (priceChart && priceChart.data.datasets[0]) {
+                priceChart.data.labels = [];
+                priceChart.data.datasets[0].data = [];
                 priceChart.update("none");
             }
+            return false;
         }
+        var hasCandle = typeof Chart.controllers !== "undefined" && Chart.controllers.candlestick;
+        if (hasCandle) {
+            try {
+                priceChart = new Chart(chartCanvas.getContext("2d"), {
+                    type: "candlestick",
+                    data: {
+                        datasets: [{
+                            label: isHA ? "HA" : "Price",
+                            data: ohlcData,
+                            color: { up: "#00e676", down: "#ff5252", unchanged: "#888" },
+                            borderColor: { up: "#00e676", down: "#ff5252", unchanged: "#888" }
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: {
+                                type: "time",
+                                display: true,
+                                grid: { color: "rgba(255,255,255,0.1)" },
+                                ticks: { color: "#888", maxTicksLimit: 8 }
+                            },
+                            y: { display: true, grid: { color: "rgba(255,255,255,0.1)" }, ticks: { color: "#888" } }
+                        }
+                    }
+                });
+                if (setRenderType) setDebug({ "module-chart-render-type": isHA ? "HA candlestick" : "candlestick" });
+                return true;
+            } catch (err) {
+                if (setRenderType) setDebug({ "module-chart-render-type": "error: " + (err.message || String(err)) });
+                createLineChart();
+                if (priceChart && priceChart.data.datasets[0]) {
+                    priceChart.data.labels = [];
+                    priceChart.data.datasets[0].data = [];
+                    priceChart.update("none");
+                }
+                return false;
+            }
+        }
+        if (setRenderType) setDebug({ "module-chart-render-type": "line (no candlestick plugin)" });
+        createLineChart();
+        if (priceChart && ohlcData.length) {
+            priceChart.data.labels = ohlcData.map(function(d) {
+                var x = d.x;
+                return (x instanceof Date) ? x.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : x;
+            });
+            priceChart.data.datasets[0].data = ohlcData.map(function(d) { return d.c; });
+            priceChart.update("none");
+        }
+        return false;
     }
 
     function initCharts() {
@@ -354,7 +441,7 @@
                 return;
             }
             if (data.error || !(data.closes && data.closes.length > 0)) {
-                setDebug({ "module-chart-result": data.error || "no data", "module-chart-bars": "0" });
+                setDebug({ "module-chart-result": data.error || "no data", "module-chart-bars": "0", "module-chart-invalid-removed": "--", "module-chart-render-type": "--" });
                 if (noDataEl) noDataEl.textContent = "No chart data for this timeframe.";
                 if (priceChart) { priceChart.destroy(); priceChart = null; createLineChart(); }
                 if (priceChart && priceChart.data.datasets[0]) priceChart.data.datasets[0].data = [];
@@ -362,15 +449,49 @@
                 showChartNoData(true);
                 return;
             }
-            var timestamps = data.timestamps || [];
-            var opens = data.opens || [];
-            var highs = data.highs || [];
-            var lows = data.lows || [];
-            var closes = data.closes || [];
+            var rawTs = data.timestamps || [];
+            var rawO = data.opens || [];
+            var rawH = data.highs || [];
+            var rawL = data.lows || [];
+            var rawC = data.closes || [];
+            var filtered = filterValidOhlcBars(rawTs, rawO, rawH, rawL, rawC);
+            var timestamps = filtered.timestamps;
+            var opens = filtered.opens;
+            var highs = filtered.highs;
+            var lows = filtered.lows;
+            var closes = filtered.closes;
             var n = closes.length;
-            setDebug({ "module-chart-bars": String(n) });
+            var removed = filtered.removed;
+
+            var first3 = [];
+            var last3 = [];
+            for (var fi = 0; fi < Math.min(3, n); fi++) {
+                first3.push({ x: timestamps[fi], o: opens[fi], h: highs[fi], l: lows[fi], c: closes[fi] });
+            }
+            for (var li = Math.max(0, n - 3); li < n; li++) {
+                last3.push({ x: timestamps[li], o: opens[li], h: highs[li], l: lows[li], c: closes[li] });
+            }
+            if (typeof console !== "undefined" && console.log) {
+                console.log("[chart audit] symbol=" + sym + " timeframe=" + interval + " period=" + period + " mode=" + (mode || "line") + " bars=" + n + " invalid_removed=" + removed + " render_type=" + (mode === "line" ? "line" : (mode === "ha" ? "HA" : "candle")));
+                console.log("[chart audit] first3=" + JSON.stringify(first3));
+                console.log("[chart audit] last3=" + JSON.stringify(last3));
+            }
+            setDebug({
+                "module-chart-bars": String(n),
+                "module-chart-invalid-removed": String(removed),
+                "module-chart-render-type": mode === "line" ? "line" : (mode === "ha" ? "HA" : "candlestick")
+            });
 
             if (mode === "candle" || mode === "ha") {
+                if (n < 2) {
+                    setDebug({ "module-chart-result": "Not enough OHLC for candle", "module-chart-render-type": "none" });
+                    if (noDataEl) noDataEl.textContent = "Not enough OHLC data for candle mode.";
+                    if (priceChart) { priceChart.destroy(); priceChart = null; }
+                    createLineChart();
+                    if (priceChart && priceChart.data.datasets[0]) { priceChart.data.labels = []; priceChart.data.datasets[0].data = []; priceChart.update("none"); }
+                    showChartNoData(true);
+                    return;
+                }
                 var useOpens = opens, useHighs = highs, useLows = lows, useCloses = closes;
                 if (mode === "ha") {
                     var ha = computeHeikinAshi(opens, highs, lows, closes);
@@ -378,49 +499,59 @@
                 }
                 var ohlcData = [];
                 for (var i = 0; i < n; i++) {
+                    var ts = timestamps[i];
+                    var xDate = (ts && (typeof ts === "number" || typeof ts === "string")) ? new Date(ts) : new Date(i);
                     ohlcData.push({
-                        x: timestamps[i] ? new Date(timestamps[i]) : new Date(i),
-                        o: useOpens[i], h: useHighs[i], l: useLows[i], c: useCloses[i]
+                        x: xDate,
+                        o: useOpens[i],
+                        h: useHighs[i],
+                        l: useLows[i],
+                        c: useCloses[i]
                     });
                 }
-                createCandlestickChart(ohlcData, mode === "ha");
+                var rendered = createCandlestickChart(ohlcData, mode === "ha", true);
+                if (!rendered && noDataEl) noDataEl.textContent = "Not enough OHLC data for candle mode.";
+                showChartNoData(!rendered);
+                setDebug({ "module-chart-result": rendered ? "ok " + n + " bars" : "candle render failed" });
             } else {
-                if (priceChart && priceChart.config.type !== "line") {
+                setDebug({ "module-chart-render-type": "line" });
+                if (priceChart && priceChart.config && priceChart.config.type !== "line") {
                     priceChart.destroy();
                     priceChart = null;
                     createLineChart();
                 }
                 var labels = timestamps.map(function(t) {
-                    var d = new Date(t);
+                    var d = (t && (typeof t === "number" || typeof t === "string")) ? new Date(t) : new Date();
                     return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
                 });
                 priceChart.data.labels = labels;
                 priceChart.data.datasets[0].data = closes;
                 priceChart.update("none");
+                showChartNoData(false);
+                setDebug({ "module-chart-result": "ok " + n + " bars" });
             }
 
             var vols = data.volumes || [];
+            var rawLen = rawC.length;
             if (volumeChart && vols.length > 0) {
-                var labels = (timestamps || []).map(function(t) { var d = new Date(t); return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }); });
+                var volLabels = (rawTs || []).map(function(t) { var d = (t && (typeof t === "number" || typeof t === "string")) ? new Date(t) : new Date(); return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }); });
                 var bgColors = [];
                 for (var v = 0; v < vols.length; v++) {
-                    var isUp = (closes[v] || 0) >= (opens[v] || 0);
+                    var isUp = (rawC[v] != null && rawO[v] != null && rawC[v] >= rawO[v]);
                     bgColors.push(isUp ? "rgba(0, 200, 100, 0.6)" : "rgba(255, 100, 100, 0.6)");
                 }
-                volumeChart.data.labels = labels.length ? labels : new Array(vols.length).fill("");
+                volumeChart.data.labels = volLabels.length ? volLabels : new Array(vols.length).fill("");
                 volumeChart.data.datasets[0].data = vols;
                 volumeChart.data.datasets[0].backgroundColor = bgColors;
                 volumeChart.update("none");
             }
-            showChartNoData(false);
-            setDebug({ "module-chart-result": "ok " + n + " bars" });
         } catch (e) {
             var msg = (e && e.message) ? e.message : String(e);
-            setDebug({ "module-chart-result": "error: " + msg, "module-chart-bars": "--" });
+            setDebug({ "module-chart-result": "error: " + msg, "module-chart-bars": "--", "module-chart-invalid-removed": "--", "module-chart-render-type": "--" });
             if (noDataEl) noDataEl.textContent = "Chart failed: " + msg;
-            if (priceChart) { priceChart.destroy(); priceChart = null; createLineChart(); }
-            if (priceChart && priceChart.data.datasets[0]) priceChart.data.datasets[0].data = [];
-            if (priceChart) priceChart.update("none");
+            if (priceChart) { priceChart.destroy(); priceChart = null; }
+            createLineChart();
+            if (priceChart && priceChart.data.datasets[0]) { priceChart.data.datasets[0].data = []; priceChart.update("none"); }
             showChartNoData(true);
         }
     }
