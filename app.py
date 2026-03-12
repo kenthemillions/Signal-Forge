@@ -1454,7 +1454,8 @@ def get_trade_recommendation(symbol):
                'trend': trend,
                'volume': vol,
                'bollinger': indicators.get('bollinger', {}),
-               'support_resistance': sr
+               'support_resistance': sr,
+               'ema': indicators.get('ema', {}),
            },
            'market_status': market_status,
            'higher_tf_trend': higher_tf_trend,

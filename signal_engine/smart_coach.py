@@ -7,9 +7,10 @@ import re
 import requests
 
 DEEPSEEK_SYSTEM_PROMPT = """You are an experienced options trading coach analyzing real market data.
-You have access to technical indicators, Fibonacci levels, and signal data.
-Give clear, actionable guidance in 2-4 sentences.
-Be direct - start with YES, NO, or WAIT. Reference specific indicator values and price levels.
+You have access to technical indicators (RSI, MACD, VWAP, trend, momentum, volume, EMA alignment), Fibonacci levels, and signal data.
+Give clear, actionable guidance in 2-4 sentences. Be direct - start with YES, NO, or WAIT.
+Reference only the actual data state provided (e.g. "RSI at 45", "price above VWAP", "MACD bullish cross"). Do not make generic or unverifiable claims (e.g. "typically makes highs at 10:00").
+Session timing may be framed as: opening range 9:30-9:35; institutional clarity 9:35-10:00; VWAP tests mid-morning; lunch consolidation 11:30-1:30; power hour after 3:00. Do not state specific times as statistical facts for a symbol unless the data explicitly supports it.
 Never guarantee profits - trading involves risk."""
 
 def ask_deepseek(question: str, symbol: str, institutional_data: dict, api_key: str, indicators: dict = None) -> str:
@@ -198,13 +199,19 @@ def analyze_trade(question: str, symbol: str, institutional_data: dict, seasonal
     elif state in ['BUY', 'SELL']:
         response_parts.append("Waiting for more confirmations would strengthen this setup.")
     
+    # Session timing: only use correctly framed, non-misleading statements
     if seasonality_data and seasonality_data.get('all_days'):
         all_days = seasonality_data['all_days']
-        high_time = all_days.get('high_time_common', '')
-        low_time = all_days.get('low_time_common', '')
-        # Only show timing tip if times are different and valid
-        if high_time and low_time and high_time != low_time and high_time != '--:--' and low_time != '--:--':
-            response_parts.append(f"Tip: {symbol} typically makes day highs around {high_time} and lows around {low_time}.")
+        high_time = (all_days.get('high_time_common') or '').strip()
+        low_time = (all_days.get('low_time_common') or '').strip()
+        days_analyzed = all_days.get('days_analyzed') or 0
+        if days_analyzed >= 20 and high_time and low_time and high_time != '--' and low_time != '--':
+            response_parts.append(
+                f"Session context (from {days_analyzed} days): opening range forms 9:30–9:35; "
+                "institutional direction often clearer 9:35–10:00; VWAP tests often mid-morning; "
+                "lunch consolidation typically 11:30–1:30; power hour momentum often after 3:00. "
+                f"In this sample, common high time was {high_time}, low time {low_time} (use as context only, not a guarantee)."
+            )
     
     full_response = f"**{verdict}**\n\n" + " ".join(response_parts)
     

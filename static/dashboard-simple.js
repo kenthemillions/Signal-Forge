@@ -1,5 +1,11 @@
 (function() {
     "use strict";
+    try {
+        var _s = localStorage.getItem("user_settings");
+        window.DEVELOPER_MODE = _s ? !!(JSON.parse(_s).developerMode) : false;
+    } catch (e) {
+        window.DEVELOPER_MODE = false;
+    }
     var currentTicker = "SPY";
     var priceChart = null;
     var volumeChart = null;
@@ -20,6 +26,7 @@
     };
 
     function setDebug(o) {
+        if (typeof window !== "undefined" && window.DEVELOPER_MODE !== true) return;
         var k, el;
         for (k in o) {
             if (o.hasOwnProperty(k)) {
@@ -216,7 +223,30 @@
         var cheapRadarRefresh = document.getElementById("cheap-options-radar-refresh");
         if (cheapRadarRefresh) cheapRadarRefresh.addEventListener("click", function() { loadCheapOptionsRadar(currentTicker); });
 
+        startLotteryAlertCheck();
         onSymbolChanged(currentTicker);
+    }
+
+    var lastLotteryAlertKey = "";
+    function startLotteryAlertCheck() {
+        setInterval(function() {
+            var now = new Date();
+            var etHour = parseInt(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+            var etMin = parseInt(now.toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }), 10);
+            var etStr = now.toLocaleString("en-US", { timeZone: "America/New_York" });
+            var key = now.toDateString() + "-15:55";
+            if (etHour === 15 && etMin >= 55 && lastLotteryAlertKey !== key) {
+                lastLotteryAlertKey = key;
+                if (typeof console !== "undefined" && console.log) {
+                    console.log("[Lottery Alert] 3:55 PM ET — Lottery hour active. Triggered at " + etStr + " ET.");
+                }
+                var banner = document.getElementById("lottery-hour-banner");
+                if (banner) banner.style.display = "block";
+            }
+            if (etHour < 15 || (etHour === 15 && etMin < 55) || etHour >= 16) {
+                if (etHour >= 16 || etHour < 15) lastLotteryAlertKey = "";
+            }
+        }, 10000);
     }
 
     async function onSymbolChanged(symbol) {
@@ -380,6 +410,45 @@
         }
     };
     if (typeof Chart !== "undefined" && Chart.register) Chart.register(candlestickDrawPlugin);
+
+    function addFibAtrOverlay(chart, labels, highs, lows, closes) {
+        if (!chart || !closes || closes.length < 20) return;
+        var lookback = Math.min(50, Math.floor(closes.length * 0.6));
+        var slice = closes.length - lookback;
+        var recentHigh = Math.max.apply(null, highs.slice(slice));
+        var recentLow = Math.min.apply(null, lows.slice(slice));
+        var range = recentHigh - recentLow;
+        if (range <= 0) return;
+        var fib382 = recentLow + range * 0.382;
+        var fib50 = recentLow + range * 0.5;
+        var fib618 = recentLow + range * 0.618;
+        var len = labels.length;
+        var constArr = function(v) { var a = []; for (var i = 0; i < len; i++) a.push(v); return a; };
+        var atrPeriod = 14;
+        var atr = 0;
+        if (highs.length >= atrPeriod && lows.length >= atrPeriod) {
+            var sum = 0;
+            for (var j = len - atrPeriod; j < len - 1; j++) {
+                if (j >= 0) sum += Math.max((highs[j] - lows[j]), Math.abs(highs[j] - (closes[j-1] || closes[j])), Math.abs(lows[j] - (closes[j-1] || closes[j])));
+            }
+            atr = sum / (atrPeriod - 1) || range * 0.02;
+        } else atr = range * 0.02;
+        var currentPrice = closes[closes.length - 1];
+        var atrUpper = currentPrice + atr;
+        var atrLower = currentPrice - atr;
+        var overlayDatasets = [
+            { label: "Fib 0.382", data: constArr(fib382), borderColor: "rgba(34, 197, 94, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 },
+            { label: "Fib 0.5", data: constArr(fib50), borderColor: "rgba(234, 179, 8, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 },
+            { label: "Fib 0.618", data: constArr(fib618), borderColor: "rgba(249, 115, 22, 0.8)", borderWidth: 1, borderDash: [4, 2], fill: false, pointRadius: 0 },
+            { label: "S/R High", data: constArr(recentHigh), borderColor: "rgba(239, 68, 68, 0.7)", borderWidth: 1, fill: false, pointRadius: 0 },
+            { label: "S/R Low", data: constArr(recentLow), borderColor: "rgba(34, 197, 94, 0.7)", borderWidth: 1, fill: false, pointRadius: 0 },
+            { label: "ATR Upper", data: constArr(atrUpper), borderColor: "rgba(148, 163, 184, 0.6)", borderWidth: 1, borderDash: [2, 2], fill: false, pointRadius: 0 },
+            { label: "ATR Lower", data: constArr(atrLower), borderColor: "rgba(148, 163, 184, 0.6)", borderWidth: 1, borderDash: [2, 2], fill: false, pointRadius: 0 }
+        ];
+        while (chart.data.datasets.length > 1) chart.data.datasets.pop();
+        overlayDatasets.forEach(function(ds) { chart.data.datasets.push(ds); });
+        chart.update("none");
+    }
 
     function createLineChart() {
         if (!chartCanvas || typeof Chart === "undefined") return;
@@ -618,6 +687,10 @@
                     ohlcData.push({ x: xVal, o: o, h: h, l: l, c: c });
                 }
                 var rendered = createCandlestickChart(ohlcData, mode === "ha", true);
+                if (rendered && priceChart) {
+                    var candleLabels = timestamps.map(function(t) { var d = (t && (typeof t === "number" || typeof t === "string")) ? new Date(t) : new Date(); return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }); });
+                    addFibAtrOverlay(priceChart, candleLabels, useHighs, useLows, useCloses);
+                }
                 if (!rendered && noDataEl) noDataEl.textContent = "Not enough OHLC data for candle mode.";
                 showChartNoData(!rendered);
                 setDebug({ "module-chart-result": rendered ? "ok " + n + " bars" : "candle render failed" });
@@ -635,6 +708,7 @@
                 priceChart.data.labels = labels;
                 priceChart.data.datasets[0].data = closes;
                 priceChart.update("none");
+                addFibAtrOverlay(priceChart, labels, highs, lows, closes);
                 showChartNoData(false);
                 setDebug({ "module-chart-result": "ok " + n + " bars" });
             }
@@ -646,7 +720,7 @@
                 var bgColors = [];
                 for (var v = 0; v < vols.length; v++) {
                     var isUp = (rawC[v] != null && rawO[v] != null && rawC[v] >= rawO[v]);
-                    bgColors.push(isUp ? "rgba(0, 200, 100, 0.7)" : "rgba(255, 100, 100, 0.7)");
+                    bgColors.push(isUp ? "rgba(34, 197, 94, 0.85)" : "rgba(239, 68, 68, 0.85)");
                 }
                 volumeChart.data.labels = volLabels.length ? volLabels : new Array(vols.length).fill("");
                 volumeChart.data.datasets[0].data = vols;
@@ -744,33 +818,64 @@
         var el = document.getElementById("timeframe-confluence");
         var statusEl = document.getElementById("module-timeframe-status");
         if (statusEl) statusEl.textContent = "...";
-        if (el) el.innerHTML = "<div class=\"text-center text-muted py-2\"><i class=\"bi bi-arrow-clockwise spin\"></i> Loading...</div>";
+        ["1m", "5m", "15m", "1h", "4h"].forEach(function(tfKey) {
+            var sigEl = document.getElementById("tf-block-signal-" + tfKey);
+            if (sigEl) { sigEl.textContent = "..."; sigEl.className = "badge bg-secondary"; }
+        });
         try {
             var res = await fetch(url);
             if (statusEl) statusEl.textContent = String(res.status);
             var data = null;
             try { data = await res.json(); } catch (e) {}
             if (!data || data.error) {
-                if (el) el.innerHTML = "<div class=\"text-center text-muted py-2\">No timeframe data for " + escapeHtml(sym) + ".</div>";
+                var c = document.getElementById("confluence-summary");
+                if (c) c.textContent = "No data";
+                ["1m", "5m", "15m", "1h", "4h"].forEach(function(tfKey) {
+                    var s = document.getElementById("tf-block-signal-" + tfKey);
+                    if (s) { s.textContent = "--"; s.className = "badge bg-secondary"; }
+                });
                 setDebug({ "module-timeframe-result": data && data.error ? data.error : "no data" });
                 return;
             }
             var cf = data.confluence || {};
-            var html = "<div class=\"small\"><span class=\"badge me-2\" style=\"background:" + (cf.color || "#888") + "\">" + (cf.signal || "WAIT") + "</span> Bullish: " + (cf.bullish_count || 0) + " Bearish: " + (cf.bearish_count || 0) + " Total: " + (cf.total || 0) + "</div>";
-            if (data.timeframes && typeof data.timeframes === "object") {
-                for (var k in data.timeframes) {
-                    if (!data.timeframes.hasOwnProperty(k)) continue;
-                    var tf = data.timeframes[k];
-                    html += "<div class=\"d-flex justify-content-between py-1 border-bottom border-secondary\"><span>" + escapeHtml(k) + "</span><span style=\"color:" + (tf.color || "#888") + "\">" + (tf.signal || tf.trend || "—") + "</span></div>";
+            var tfOrder = ["1m", "5m", "15m", "1h", "4h"];
+            var timeframes = data.timeframes || {};
+            tfOrder.forEach(function(tfKey) {
+                var symEl = document.getElementById("tf-block-symbol-" + tfKey);
+                var sigEl = document.getElementById("tf-block-signal-" + tfKey);
+                var blockEl = document.querySelector(".timeframe-block[data-tf=\"" + tfKey + "\"]");
+                if (symEl) symEl.textContent = sym;
+                var tf = timeframes[tfKey] || {};
+                var signal = (tf.signal || tf.trend || "WAIT").toString().toUpperCase();
+                if (signal.indexOf("BUY") !== -1) signal = "BUY";
+                else if (signal.indexOf("SELL") !== -1) signal = "SELL";
+                else if (signal === "PREPARE" || (tf.trend && tf.trend !== "NEUTRAL")) signal = "PREPARE";
+                else signal = "WAIT";
+                if (sigEl) {
+                    sigEl.textContent = signal;
+                    sigEl.className = "badge ";
+                    if (signal === "BUY") sigEl.className += "bg-success";
+                    else if (signal === "SELL") sigEl.className += "bg-danger";
+                    else if (signal === "PREPARE") sigEl.className += "bg-warning text-dark";
+                    else sigEl.className += "bg-secondary";
                 }
-            }
-            if (el) el.innerHTML = html;
+                if (blockEl) {
+                    blockEl.classList.remove("border-success", "border-danger", "border-warning", "border-secondary");
+                    if (signal === "BUY") blockEl.classList.add("border-success");
+                    else if (signal === "SELL") blockEl.classList.add("border-danger");
+                    else if (signal === "PREPARE") blockEl.classList.add("border-warning");
+                    else blockEl.classList.add("border-secondary");
+                }
+            });
+            var confSummary = document.getElementById("confluence-summary");
+            if (confSummary) confSummary.textContent = (cf.signal || "WAIT") + " · " + (cf.bullish_count || 0) + "/" + (cf.total || 0) + " bullish";
             var lastRef = document.getElementById("last-refresh-time");
             if (lastRef) lastRef.textContent = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
             setDebug({ "module-timeframe-result": "ok" });
         } catch (e) {
             var msg = (e && e.message) ? e.message : String(e);
-            if (el) el.innerHTML = "<div class=\"text-center text-danger py-2\">Error loading timeframe data.</div>";
+            var c = document.getElementById("confluence-summary");
+            if (c) c.textContent = "Error";
             setDebug({ "module-timeframe-status": "err", "module-timeframe-result": msg });
         }
     }
@@ -1041,6 +1146,7 @@
     }
 
     function updateDebugPanelStep5(data, symbol) {
+        if (typeof window !== "undefined" && window.DEVELOPER_MODE !== true) return;
         var sym = (symbol || currentTicker || "").toString().toUpperCase();
         setEl("debug-current-ticker", sym || "--");
         setEl("debug-signal-count", data && data.signals ? String(data.signals.length) : "0");
@@ -1127,6 +1233,7 @@
             var bull = data.bullish_count != null ? String(data.bullish_count) : "--";
             var bear = data.bearish_count != null ? String(data.bearish_count) : "--";
             var tot = data.total_count != null ? String(data.total_count) : "--";
+            updateIndicatorsPanel(data.indicators || {});
             setDebug({
                 "module-analysis-result": "ok " + mainSignal,
                 "module-analysis-indicators": indList,
@@ -1165,6 +1272,51 @@
             if (l.classList.contains(activeColor)) l.classList.add("active");
             else l.classList.remove("active");
         }
+    }
+
+    function updateIndicatorsPanel(ind) {
+        function set(id, text, badgeClass) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = text != null && text !== "" ? text : "--";
+            if (badgeClass && el.classList && el.classList.contains("badge")) {
+                el.className = "badge small " + badgeClass;
+            }
+        }
+        var rsi = ind.rsi || {};
+        var rsiVal = rsi.value != null ? Math.round(rsi.value) : "--";
+        set("rsi-value", rsiVal);
+        var rsiSig = "Neutral";
+        if (rsi.value != null) { if (rsi.value >= 70) rsiSig = "Overbought"; else if (rsi.value <= 30) rsiSig = "Oversold"; }
+        set("rsi-signal", rsiSig, rsiSig === "Overbought" ? "bg-danger" : rsiSig === "Oversold" ? "bg-success" : "bg-secondary");
+        var macd = ind.macd || {};
+        set("macd-value", macd.histogram != null ? macd.histogram.toFixed(3) : "--");
+        var macdSig = (macd.signal_type || "Neutral").toString();
+        if (macdSig.indexOf("BULLISH") !== -1) macdSig = "Bullish Cross";
+        else if (macdSig.indexOf("BEARISH") !== -1) macdSig = "Bearish Cross";
+        else macdSig = "Neutral";
+        set("macd-signal", macdSig, macdSig === "Bullish Cross" ? "bg-success" : macdSig === "Bearish Cross" ? "bg-danger" : "bg-secondary");
+        var bb = ind.bollinger || {};
+        set("bb-position", bb.price_position || "--");
+        set("bb-signal", bb.signal || "--", "bg-secondary");
+        var vol = ind.volume || {};
+        var volRatio = vol.spike_ratio != null ? vol.spike_ratio : 1;
+        set("volume-value", volRatio !== 1 ? volRatio.toFixed(1) + "x" : "1x");
+        set("volume-signal", vol.spike ? "Expanding" : (volRatio >= 1.2 ? "Expanding" : "Weak"), vol.spike || volRatio >= 1.2 ? "bg-success" : "bg-secondary");
+        var vwap = ind.vwap || {};
+        set("vwap-value", vwap.value != null ? "$" + Number(vwap.value).toFixed(2) : "--");
+        set("vwap-signal", vwap.above_vwap ? "Above" : "Below", vwap.above_vwap ? "bg-success" : "bg-danger");
+        var trend = ind.trend || {};
+        var dir = (trend.direction || "NEUTRAL").toString();
+        var trendLabel = dir === "BULLISH" ? "Uptrend" : dir === "BEARISH" ? "Downtrend" : "Range";
+        set("trend-value", trend.strength != null ? trend.strength + "%" : "--");
+        set("trend-signal", trendLabel, dir === "BULLISH" ? "bg-success" : dir === "BEARISH" ? "bg-danger" : "bg-secondary");
+        var ema = ind.ema || {};
+        set("ema-13-value", ema.price_vs_ema_13 === "ABOVE" ? "Above" : ema.price_vs_ema_13 === "BELOW" ? "Below" : "--");
+        set("ema-48-value", ema.price_vs_ema_48 === "ABOVE" ? "Above" : ema.price_vs_ema_48 === "BELOW" ? "Below" : "--");
+        set("ema-200-value", ema.price_vs_ema_200 === "ABOVE" ? "Above" : ema.price_vs_ema_200 === "BELOW" ? "Below" : "--");
+        var sumEl = document.getElementById("indicators-summary");
+        if (sumEl) sumEl.textContent = (rsiVal !== "--" ? "RSI " + rsiVal : "") + (trendLabel ? " · " + trendLabel : "") + (vwap.above_vwap !== undefined ? (vwap.above_vwap ? " · Above VWAP" : " · Below VWAP") : "");
     }
 
     if (document.readyState === "loading") {

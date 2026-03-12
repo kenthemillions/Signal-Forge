@@ -35,9 +35,7 @@
                 <button class="btn btn-outline-light btn-sm" data-bs-toggle="modal" data-bs-target="#settingsModal">
                     <i class="bi bi-gear"></i>
                 </button>
-                <button id="debug-toggle" class="btn btn-outline-dark btn-sm" title="Toggle Debug Mode" style="opacity: 0.4;">
-                    <i class="bi bi-bug"></i>
-                </button>
+                <button id="debug-toggle" class="btn btn-outline-dark btn-sm d-none" title="Developer: Toggle Debug Panel" style="opacity: 0.6;" aria-label="Debug panel (Developer Mode only)"><i class="bi bi-bug"></i></button>
                 {% if current_user %}<a class="btn btn-outline-danger btn-sm" href="{{ url_for('logout') }}">Logout</a>{% endif %}
             </div>
         </div>
@@ -49,26 +47,24 @@
         <a class="text-danger ms-1" href="{{ url_for('disclaimer_page') }}">Disclaimer</a>
     </div>
 
-    <!-- Debug Panel (Hidden by default) - Step 5 extended -->
-    <div id="debug-panel" class="bg-black text-light p-2 small border-bottom border-secondary" style="display: none; font-family: monospace;">
+    <!-- Developer Panel: visible only when Settings → Developer Mode is ON and user clicks debug toggle -->
+    <div id="debug-panel" class="bg-black text-light p-2 small border-bottom border-secondary" style="display: none; font-family: monospace; max-height: 280px; overflow-y: auto;">
         <div class="container-fluid">
-            <div class="row">
+            <div class="row mb-2">
                 <div class="col-auto"><span class="text-muted">currentTicker:</span> <span id="debug-current-ticker">--</span></div>
                 <div class="col-auto"><span class="text-muted">signal_count:</span> <span id="debug-signal-count">--</span></div>
-                <div class="col-auto"><span class="text-muted">options_scanner:</span> <span id="debug-options-scanner-status">--</span></div>
                 <div class="col-auto"><span class="text-muted">momentum_score:</span> <span id="debug-momentum-score">--</span></div>
                 <div class="col-auto"><span class="text-muted">market_phase:</span> <span id="debug-market-phase">--</span></div>
                 <div class="col-auto"><span class="text-muted">engine_status:</span> <span id="debug-engine-status">--</span></div>
                 <div class="col-auto"><span class="text-muted">last_signal_time:</span> <span id="debug-last-signal-time">--</span></div>
-                <div class="col-auto"><span class="text-muted">CT:</span> <span id="debug-time-ct">--</span></div>
-                <div class="col-auto"><span class="text-muted">Session:</span> <span id="debug-session">--</span></div>
-                <div class="col-auto"><span class="text-muted">Confidence:</span> <span id="debug-confidence">--</span></div>
-                <div class="col-auto"><span class="text-muted">Volume:</span> <span id="debug-volume">--</span></div>
-                <div class="col-auto"><span class="text-muted">Signal:</span> <span id="debug-signal">--</span></div>
-                <div class="col-auto"><span class="text-muted">Entry:</span> <span id="debug-entry-window">--</span></div>
-                <div class="col-auto"><span class="text-muted">Type:</span> <span id="debug-entry-type">--</span></div>
-                <div class="col-auto"><span class="text-muted">Wait:</span> <span id="debug-wait-for">--</span></div>
-                <div class="col-auto"><span class="text-muted">15m trend:</span> <span id="debug-15m-trend">--</span></div>
+            </div>
+            <div id="developer-detail-box" class="small" style="font-size: 0.7rem;">
+                <div>initialized: <span id="simple-debug-initialized">no</span></div>
+                <div>quote status: <span id="simple-debug-status">--</span> symbol: <span id="simple-debug-symbol">--</span> price: <span id="simple-debug-price">--</span></div>
+                <div>analysis: <span id="module-analysis-status">--</span> result: <span id="module-analysis-result">--</span></div>
+                <div>chart: <span id="module-chart-status">--</span> <span id="module-chart-result">--</span></div>
+                <div>news: <span id="module-news-status">--</span> count: <span id="module-news-count">--</span></div>
+                <div>timeframe: <span id="module-timeframe-status">--</span> key levels: <span id="module-keylevels-status">--</span> scalping: <span id="module-scalping-status">--</span> premarket: <span id="module-premarket-status">--</span></div>
             </div>
         </div>
     </div>
@@ -864,35 +860,6 @@
                         <span class="badge bg-success bg-opacity-25 text-success small">Live</span>
                     </div>
                     <div class="card-body py-3">
-                        <div id="simple-debug-box" class="small mb-2 p-2 rounded border border-secondary bg-dark" style="font-family: monospace; font-size: 0.7rem;">
-                            <div>initialized: <span id="simple-debug-initialized">no</span></div>
-                            <div>currentTicker: <span id="simple-debug-ticker">--</span></div>
-                            <div>quote URL: <span id="simple-debug-url">--</span></div>
-                            <div>quote status: <span id="simple-debug-status">--</span></div>
-                            <div>quote symbol returned: <span id="simple-debug-symbol">--</span></div>
-                            <div>price rendered: <span id="simple-debug-price">--</span></div>
-                            <div>last error: <span id="simple-debug-error">none</span></div>
-                            <div>quote price_source: <span id="simple-debug-price-source">--</span></div>
-                            <div>quote previous_close: <span id="simple-debug-prev-close">--</span></div>
-                            <div>quote session: <span id="simple-debug-session">--</span></div>
-                            <div>quote computed_change: <span id="simple-debug-computed-change">--</span> computed_pct: <span id="simple-debug-computed-pct">--</span></div>
-                            <div>analysis symbol: <span id="module-analysis-symbol">--</span></div>
-                            <div>analysis endpoint: <span id="module-analysis-endpoint">--</span></div>
-                            <div>analysis status: <span id="module-analysis-status">--</span></div>
-                            <div>analysis result: <span id="module-analysis-result">--</span></div>
-                            <div>indicators: <span id="module-analysis-indicators">--</span></div>
-                            <div>bullish_count: <span id="module-analysis-bullish">--</span> bearish_count: <span id="module-analysis-bearish">--</span> total_count: <span id="module-analysis-total">--</span></div>
-                            <div>chart symbol: <span id="module-chart-symbol">--</span></div>
-                            <div>chart endpoint: <span id="module-chart-endpoint">--</span></div>
-                            <div>chart status: <span id="module-chart-status">--</span> result: <span id="module-chart-result">--</span></div>
-                            <div>chart mode: <span id="module-chart-mode">--</span> renderer: <span id="module-chart-render-type">--</span> timeframe: <span id="module-chart-timeframe">--</span> total bars: <span id="module-chart-total-bars">--</span> valid: <span id="module-chart-bars">--</span> dropped: <span id="module-chart-invalid-removed">--</span></div>
-                            <div>news symbol: <span id="module-news-symbol">--</span></div>
-                            <div>news endpoint: <span id="module-news-endpoint">--</span> status: <span id="module-news-status">--</span> count: <span id="module-news-count">--</span> result: <span id="module-news-result">--</span></div>
-                            <div>timeframe status: <span id="module-timeframe-status">--</span> result: <span id="module-timeframe-result">--</span></div>
-                            <div>key levels symbol: <span id="module-keylevels-symbol">--</span> status: <span id="module-keylevels-status">--</span> result: <span id="module-keylevels-result">--</span></div>
-                            <div>scalping symbol: <span id="module-scalping-symbol">--</span> status: <span id="module-scalping-status">--</span> result: <span id="module-scalping-result">--</span></div>
-                            <div>premarket symbol: <span id="module-premarket-symbol">--</span> status: <span id="module-premarket-status">--</span> result: <span id="module-premarket-result">--</span></div>
-                        </div>
                         <div class="d-flex flex-column gap-2">
                             <div class="d-flex align-items-center gap-1 flex-wrap">
                                 <button id="prev-ticker-btn" class="btn btn-outline-secondary btn-sm order-0" title="Previous ticker">
@@ -1039,9 +1006,14 @@
                         <small class="text-muted">Last: <span id="last-refresh-time">--:--:--</span></small>
                     </div>
                     <div class="card-body py-2" id="timeframe-confluence">
-                        <div class="text-center text-muted py-3">
-                            <i class="bi bi-arrow-clockwise spin"></i> Loading timeframes...
+                        <div id="timeframe-blocks" class="row g-2 text-center">
+                            <div class="col"><div class="timeframe-block rounded p-2 border bg-dark" data-tf="1m"><div class="small text-muted" id="tf-block-symbol-1m">--</div><div class="fw-bold small">1m</div><div class="badge bg-secondary" id="tf-block-signal-1m">--</div></div></div>
+                            <div class="col"><div class="timeframe-block rounded p-2 border bg-dark" data-tf="5m"><div class="small text-muted" id="tf-block-symbol-5m">--</div><div class="fw-bold small">5m</div><div class="badge bg-secondary" id="tf-block-signal-5m">--</div></div></div>
+                            <div class="col"><div class="timeframe-block rounded p-2 border bg-dark" data-tf="15m"><div class="small text-muted" id="tf-block-symbol-15m">--</div><div class="fw-bold small">15m</div><div class="badge bg-secondary" id="tf-block-signal-15m">--</div></div></div>
+                            <div class="col"><div class="timeframe-block rounded p-2 border bg-dark" data-tf="1h"><div class="small text-muted" id="tf-block-symbol-1h">--</div><div class="fw-bold small">1h</div><div class="badge bg-secondary" id="tf-block-signal-1h">--</div></div></div>
+                            <div class="col"><div class="timeframe-block rounded p-2 border bg-dark" data-tf="4h"><div class="small text-muted" id="tf-block-symbol-4h">--</div><div class="fw-bold small">4h</div><div class="badge bg-secondary" id="tf-block-signal-4h">--</div></div></div>
                         </div>
+                        <div class="text-center mt-2 small text-muted">Confluence: <span id="confluence-summary">--</span></div>
                     </div>
                     <div id="entry-timing-note" class="card-footer text-muted small py-1" style="display: none;"></div>
                 </div>
@@ -1408,6 +1380,12 @@
                                 <input class="form-check-input" type="checkbox" id="gatekeeper-stop-green">
                                 <label class="form-check-label text-light" for="gatekeeper-stop-green">Stop when green (after 1 profitable trade)</label>
                             </div>
+                            <h6 class="text-warning mb-2 mt-4">Developer</h6>
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" id="developer-mode">
+                                <label class="form-check-label text-light" for="developer-mode">Developer Mode</label>
+                            </div>
+                            <div class="small text-muted">Shows debug toggle in navbar. Use it to open the developer panel for diagnostics. Not shown to normal users.</div>
                         </div>
                         <div class="col-md-6">
                             <h6 class="text-info mb-3">Active Indicators <span id="active-indicator-count" class="badge bg-secondary">--</span></h6>
@@ -2236,6 +2214,11 @@
             document.getElementById('timezone-select').value = settings.timezone || 'CT';
             document.getElementById('gatekeeper-enabled').checked = settings.gatekeeperEnabled || false;
             document.getElementById('gatekeeper-stop-green').checked = settings.gatekeeperStopGreen || false;
+            const devMode = document.getElementById('developer-mode');
+            if (devMode) devMode.checked = settings.developerMode || false;
+            window.DEVELOPER_MODE = settings.developerMode || false;
+            const debugBtn = document.getElementById('debug-toggle');
+            if (debugBtn) debugBtn.classList.toggle('d-none', !window.DEVELOPER_MODE);
         }
         
         function saveGatekeeperSettings() {
@@ -2243,14 +2226,23 @@
             settings.timezone = document.getElementById('timezone-select').value;
             settings.gatekeeperEnabled = document.getElementById('gatekeeper-enabled').checked;
             settings.gatekeeperStopGreen = document.getElementById('gatekeeper-stop-green').checked;
+            const devMode = document.getElementById('developer-mode');
+            settings.developerMode = devMode ? devMode.checked : false;
             localStorage.setItem('user_settings', JSON.stringify(settings));
-            
+            window.DEVELOPER_MODE = settings.developerMode;
+            const debugBtn = document.getElementById('debug-toggle');
+            if (debugBtn) debugBtn.classList.toggle('d-none', !window.DEVELOPER_MODE);
             refreshGatekeeperStatus();
             refreshTimeEdge();
         }
         
         document.getElementById('radar-refresh-btn')?.addEventListener('click', scanCheapOptions);
         document.getElementById('time-edge-refresh-btn')?.addEventListener('click', refreshTimeEdge);
+        document.getElementById('debug-toggle')?.addEventListener('click', function() {
+            if (!window.DEVELOPER_MODE) return;
+            const panel = document.getElementById('debug-panel');
+            if (panel) panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+        });
         
         document.getElementById('save-settings')?.addEventListener('click', function() {
             saveGatekeeperSettings();
