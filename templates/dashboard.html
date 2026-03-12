@@ -593,9 +593,9 @@
                                     <button class="btn btn-outline-secondary timeframe-btn" data-interval="4h" data-period="3mo">4h</button>
                                 </div>
                                 <div class="btn-group btn-group-sm">
-                                    <button class="btn btn-outline-secondary" data-period="1d">1D</button>
-                                    <button class="btn btn-outline-secondary" data-period="5d">5D</button>
-                                    <button class="btn btn-outline-secondary" data-period="1mo">1M</button>
+                                    <button class="btn btn-outline-secondary timeframe-btn" data-interval="1d" data-period="5d">1D</button>
+                                    <button class="btn btn-outline-secondary timeframe-btn" data-interval="1d" data-period="1mo">5D</button>
+                                    <button class="btn btn-outline-secondary timeframe-btn" data-interval="1d" data-period="3mo">1M</button>
                                 </div>
                                 <div class="btn-group btn-group-sm chart-type-toggle">
                                     <button id="chart-line" class="btn btn-outline-info btn-sm chart-type-btn active">Line</button>
@@ -877,6 +877,9 @@
                             <div>chart symbol: <span id="module-chart-symbol">--</span></div>
                             <div>chart endpoint: <span id="module-chart-endpoint">--</span></div>
                             <div>chart status: <span id="module-chart-status">--</span> result: <span id="module-chart-result">--</span></div>
+                            <div>chart mode: <span id="module-chart-mode">--</span> timeframe: <span id="module-chart-timeframe">--</span> period: <span id="module-chart-period">--</span> interval: <span id="module-chart-interval">--</span> bars: <span id="module-chart-bars">--</span></div>
+                            <div>news symbol: <span id="module-news-symbol">--</span></div>
+                            <div>news endpoint: <span id="module-news-endpoint">--</span> status: <span id="module-news-status">--</span> count: <span id="module-news-count">--</span> result: <span id="module-news-result">--</span></div>
                         </div>
                         <div class="d-flex flex-column gap-2">
                             <div class="d-flex align-items-center gap-1 flex-wrap">
