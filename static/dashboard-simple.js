@@ -286,11 +286,13 @@
         var n = (closes && closes.length) || 0;
         var ha_o = [], ha_h = [], ha_l = [], ha_c = [];
         for (var i = 0; i < n; i++) {
-            var o = opens[i], h = highs[i], l = lows[i], c = closes[i];
-            ha_c[i] = (o + h + l + c) / 4;
-            ha_o[i] = i === 0 ? (o + c) / 2 : (ha_o[i - 1] + ha_c[i - 1]) / 2;
-            ha_h[i] = Math.max(h, ha_o[i], ha_c[i]);
-            ha_l[i] = Math.min(l, ha_o[i], ha_c[i]);
+            var o = Number(opens[i]), h = Number(highs[i]), l = Number(lows[i]), c = Number(closes[i]);
+            var hc = (o + h + l + c) / 4;
+            var ho = i === 0 ? (o + c) / 2 : (ha_o[i - 1] + ha_c[i - 1]) / 2;
+            ha_c[i] = Math.round(hc * 1e4) / 1e4;
+            ha_o[i] = Math.round(ho * 1e4) / 1e4;
+            ha_h[i] = Math.round((Math.max(h, ha_o[i], ha_c[i])) * 1e4) / 1e4;
+            ha_l[i] = Math.round((Math.min(l, ha_o[i], ha_c[i])) * 1e4) / 1e4;
         }
         return { opens: ha_o, highs: ha_h, lows: ha_l, closes: ha_c };
     }
@@ -336,58 +338,79 @@
             }
             return false;
         }
-        var hasCandle = typeof Chart.controllers !== "undefined" && Chart.controllers.candlestick;
-        if (hasCandle) {
-            try {
-                priceChart = new Chart(chartCanvas.getContext("2d"), {
-                    type: "candlestick",
-                    data: {
-                        datasets: [{
-                            label: isHA ? "HA" : "Price",
-                            data: ohlcData,
-                            color: { up: "#00e676", down: "#ff5252", unchanged: "#888" },
-                            borderColor: { up: "#00e676", down: "#ff5252", unchanged: "#888" }
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            x: {
-                                type: "time",
-                                display: true,
-                                grid: { color: "rgba(255,255,255,0.1)" },
-                                ticks: { color: "#888", maxTicksLimit: 8 }
-                            },
-                            y: { display: true, grid: { color: "rgba(255,255,255,0.1)" }, ticks: { color: "#888" } }
+        var n = ohlcData.length;
+        var dataMin = Infinity, dataMax = -Infinity;
+        for (var d = 0; d < n; d++) {
+            var bar = ohlcData[d];
+            if (bar.l < dataMin) dataMin = bar.l;
+            if (bar.h > dataMax) dataMax = bar.h;
+        }
+        if (dataMin === Infinity) dataMin = 0;
+        if (dataMax === -Infinity) dataMax = 100;
+        var pad = (dataMax - dataMin) * 0.005 || 0.5;
+        var yMin = dataMin - pad;
+        var yMax = dataMax + pad;
+
+        var labels = [];
+        var bodyData = [];
+        var bodyColors = [];
+        for (var i = 0; i < n; i++) {
+            var b = ohlcData[i];
+            var o = b.o, h = b.h, l = b.l, c = b.c;
+            var xVal = b.x;
+            labels.push(typeof xVal === "number" ? new Date(xVal).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : (xVal instanceof Date ? xVal.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : String(i)));
+            bodyData.push([Number(Math.min(o, c)), Number(Math.max(o, c))]);
+            bodyColors.push(c >= o ? "rgba(34, 197, 94, 0.92)" : "rgba(239, 68, 68, 0.92)");
+        }
+
+        try {
+            priceChart = new Chart(chartCanvas.getContext("2d"), {
+                type: "bar",
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: isHA ? "Heikin Ashi" : "OHLC",
+                        data: bodyData,
+                        backgroundColor: bodyColors,
+                        borderColor: bodyColors.map(function(c) { return c.replace("0.92", "1"); }),
+                        borderWidth: 0,
+                        barPercentage: 0.7,
+                        categoryPercentage: 0.9
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: {
+                            display: true,
+                            grid: { color: "rgba(255,255,255,0.08)" },
+                            ticks: { color: "#94a3b8", maxTicksLimit: 14, font: { size: 10 }, autoSkip: true }
+                        },
+                        y: {
+                            display: true,
+                            position: "right",
+                            suggestedMin: yMin,
+                            suggestedMax: yMax,
+                            grid: { color: "rgba(255,255,255,0.08)" },
+                            ticks: { color: "#94a3b8", font: { size: 10 } }
                         }
                     }
-                });
-                if (setRenderType) setDebug({ "module-chart-render-type": isHA ? "HA candlestick" : "candlestick" });
-                return true;
-            } catch (err) {
-                if (setRenderType) setDebug({ "module-chart-render-type": "error: " + (err.message || String(err)) });
-                createLineChart();
-                if (priceChart && priceChart.data.datasets[0]) {
-                    priceChart.data.labels = [];
-                    priceChart.data.datasets[0].data = [];
-                    priceChart.update("none");
                 }
-                return false;
-            }
-        }
-        if (setRenderType) setDebug({ "module-chart-render-type": "line (no candlestick plugin)" });
-        createLineChart();
-        if (priceChart && ohlcData.length) {
-            priceChart.data.labels = ohlcData.map(function(d) {
-                var x = d.x;
-                return (x instanceof Date) ? x.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : x;
             });
-            priceChart.data.datasets[0].data = ohlcData.map(function(d) { return d.c; });
-            priceChart.update("none");
+            if (setRenderType) setDebug({ "module-chart-render-type": isHA ? "HA (bar)" : "candle (bar)" });
+            return true;
+        } catch (err) {
+            if (setRenderType) setDebug({ "module-chart-render-type": "error: " + (err.message || String(err)) });
+            createLineChart();
+            if (priceChart && priceChart.data.datasets[0]) {
+                priceChart.data.labels = [];
+                priceChart.data.datasets[0].data = [];
+                priceChart.update("none");
+            }
+            return false;
         }
-        return false;
     }
 
     function initCharts() {
@@ -400,8 +423,17 @@
             if (volumeChart) volumeChart.destroy();
             volumeChart = new Chart(volCtx.getContext("2d"), {
                 type: "bar",
-                data: { labels: [], datasets: [{ label: "Volume", data: [], backgroundColor: "rgba(100, 149, 237, 0.5)", borderColor: "#6495ed", borderWidth: 1 }] },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }
+                data: { labels: [], datasets: [{ label: "Volume", data: [], backgroundColor: "rgba(100, 149, 237, 0.6)", borderColor: "rgba(100, 149, 237, 0.8)", borderWidth: 1 }] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: true, grid: { display: false }, ticks: { color: "#888", maxTicksLimit: 10, font: { size: 10 } } },
+                        y: { display: true, grid: { color: "rgba(255,255,255,0.08)" }, ticks: { color: "#888", font: { size: 10 } } }
+                    },
+                    datasets: { bar: { barPercentage: 0.85, categoryPercentage: 0.9 } }
+                }
             });
         }
         showChartNoData(true);
@@ -500,14 +532,12 @@
                 var ohlcData = [];
                 for (var i = 0; i < n; i++) {
                     var ts = timestamps[i];
-                    var xDate = (ts && (typeof ts === "number" || typeof ts === "string")) ? new Date(ts) : new Date(i);
-                    ohlcData.push({
-                        x: xDate,
-                        o: useOpens[i],
-                        h: useHighs[i],
-                        l: useLows[i],
-                        c: useCloses[i]
-                    });
+                    var xVal = (ts && (typeof ts === "number" || typeof ts === "string")) ? new Date(ts).getTime() : i;
+                    var o = Number(Number(useOpens[i]).toFixed(4));
+                    var h = Number(Number(useHighs[i]).toFixed(4));
+                    var l = Number(Number(useLows[i]).toFixed(4));
+                    var c = Number(Number(useCloses[i]).toFixed(4));
+                    ohlcData.push({ x: xVal, o: o, h: h, l: l, c: c });
                 }
                 var rendered = createCandlestickChart(ohlcData, mode === "ha", true);
                 if (!rendered && noDataEl) noDataEl.textContent = "Not enough OHLC data for candle mode.";
@@ -538,12 +568,41 @@
                 var bgColors = [];
                 for (var v = 0; v < vols.length; v++) {
                     var isUp = (rawC[v] != null && rawO[v] != null && rawC[v] >= rawO[v]);
-                    bgColors.push(isUp ? "rgba(0, 200, 100, 0.6)" : "rgba(255, 100, 100, 0.6)");
+                    bgColors.push(isUp ? "rgba(0, 200, 100, 0.7)" : "rgba(255, 100, 100, 0.7)");
                 }
                 volumeChart.data.labels = volLabels.length ? volLabels : new Array(vols.length).fill("");
                 volumeChart.data.datasets[0].data = vols;
                 volumeChart.data.datasets[0].backgroundColor = bgColors;
                 volumeChart.update("none");
+
+                var volStateEl = document.getElementById("volume-state-alert");
+                var volIconEl = document.getElementById("volume-state-icon");
+                var volTextEl = document.getElementById("volume-state-text");
+                if (volStateEl && volIconEl && volTextEl) {
+                    var sum = 0, count = 0;
+                    for (var vi = 0; vi < vols.length; vi++) { if (vols[vi] != null && !isNaN(vols[vi])) { sum += vols[vi]; count++; } }
+                    var avgVol = count > 0 ? sum / count : 0;
+                    var recentCount = Math.min(5, Math.max(1, Math.floor(vols.length * 0.2)));
+                    var recentSum = 0;
+                    for (var ri = vols.length - recentCount; ri < vols.length; ri++) { if (ri >= 0 && vols[ri] != null) recentSum += vols[ri]; }
+                    var recentAvg = recentCount > 0 ? recentSum / recentCount : 0;
+                    if (avgVol > 0 && recentAvg >= avgVol * 1.5) {
+                        volStateEl.className = "volume-state-indicator volume-on-fire";
+                        volIconEl.innerHTML = "<i class=\"bi bi-fire\"></i> ";
+                        volTextEl.textContent = "On fire";
+                        volStateEl.style.display = "";
+                    } else if (avgVol > 0 && recentAvg <= avgVol * 0.5) {
+                        volStateEl.className = "volume-state-indicator volume-weak";
+                        volIconEl.innerHTML = "<i class=\"bi bi-droplet-half\"></i> ";
+                        volTextEl.textContent = "Weak";
+                        volStateEl.style.display = "";
+                    } else {
+                        volStateEl.style.display = "none";
+                    }
+                }
+            } else {
+                var volStateEl = document.getElementById("volume-state-alert");
+                if (volStateEl) volStateEl.style.display = "none";
             }
         } catch (e) {
             var msg = (e && e.message) ? e.message : String(e);
